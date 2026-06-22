@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { PhaserGame, type PhaserGameRef } from './game/PhaserGame';
 import { EventBus } from './game/EventBus';
+import { Chat } from './Chat';
 import './App.css';
 
 /**
@@ -55,6 +56,7 @@ function App() {
         <span className="hud__line">zone: {zone || '—'}</span>
         <span className="hud__hint">WASD / arrows to move</span>
       </div>
+      <Chat />
     </div>
   );
 }

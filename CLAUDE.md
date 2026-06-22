@@ -55,7 +55,9 @@ F0 (walk + presence + zones + text chat) is being built in **vertical slices**:
 Slice 1 = client scaffold + local player movement (done). Slice 2 = Colyseus
 server + presence, remotes interpolated (done). Slice 3 = zones — server owns
 membership (player.zone), client renders areas + shows local zone (done). Slice 4
-= text chat. F1 voice (LiveKit), F2 AI NPCs (M.IA gateway), F3 scale.
+= text chat — transient broadcast, React↔scene↔room over the bus, server-side
+input validation (done). **F0 complete.** Next: F1 voice (LiveKit), F2 AI NPCs
+(M.IA gateway), F3 scale.
 
 ## Running the dev stack
 

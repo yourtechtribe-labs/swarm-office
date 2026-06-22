@@ -50,6 +50,12 @@ export interface SwarmEvents {
   'presence-changed': (count: number) => void;
   /** Fired when the local player enters/leaves a zone — the zone's display name ('' = none). */
   'zone-changed': (zoneName: string) => void;
+  /** React → scene: the user submitted a chat line; the scene relays it to the room. */
+  'chat-send': (text: string) => void;
+  /** scene → React: a chat line arrived (self = our own message, echoed back). */
+  'chat-message': (msg: { from: string; text: string; self: boolean }) => void;
+  /** React → scene: the chat input gained/lost focus → scene toggles game keyboard. */
+  'chat-focus': (focused: boolean) => void;
 }
 
 /** A typed view over Phaser's EventEmitter, constrained to `SwarmEvents`. */

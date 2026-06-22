@@ -22,10 +22,12 @@ type DirKeys = Record<'up' | 'down' | 'left' | 'right', Input.Keyboard.Key>;
  *  OfficeScene — the playable office (F0 / Slice 1)
  * ═══════════════════════════════════════════════════════════════════════════
  *
- * Scope (F0, slices 1–3): a tiled floor, the local player (WASD/arrow movement,
+ * Scope (F0, slices 1–4): a tiled floor, the local player (WASD/arrow movement,
  * camera follow), networked PRESENCE (remote players interpolated from the Colyseus
- * server), and ZONES (named areas; the server owns membership via player.zone, the
- * client draws the rectangles the server pushes and shows the local player's zone).
+ * server), ZONES (named areas; the server owns membership via player.zone, the
+ * client draws the rectangles the server pushes and shows the local player's zone),
+ * and CHAT (transient broadcast; React panel ↔ scene ↔ room over the EventBus, with
+ * the game keyboard suspended while the chat input is focused).
  *
  * RENDER LAYERS (depth)
  * ---------------------
@@ -56,6 +58,8 @@ export class OfficeScene extends Scene {
   private zones: ZoneView[] = [];
   /** Last local zone name we emitted, so we notify React only on change. */
   private lastZone = '';
+  /** True while the chat input is focused — suspends local movement (see update). */
+  private chatFocused = false;
 
   constructor() {
     super('OfficeScene');
@@ -109,6 +113,26 @@ export class OfficeScene extends Scene {
     connectToOffice()
       .then((room) => this.onConnected(room))
       .catch((err) => console.error('[net] could not join office:', err));
+
+    // CHAT bus wiring (React → scene). The scene owns the room, so React emits
+    // intents on the bus and we relay them — React never touches the network.
+    // Registered here and removed on scene 'shutdown' so a StrictMode/HMR teardown
+    // doesn't leak listeners or leave stale closures pointing at a dead scene.
+    const onChatSend = (text: string) => this.room?.send('chat', { text });
+    const onChatFocus = (focused: boolean) => {
+      this.chatFocused = focused;
+      // Disable Phaser's keyboard so WASD typed into the chat box doesn't move the
+      // avatar; and zero velocity so a key held at the moment of focus doesn't keep
+      // sliding it (disabling only stops UPDATES, not the frozen isDown state).
+      this.input.keyboard!.enabled = !focused;
+      if (focused) this.player.setVelocity(0);
+    };
+    EventBus.on('chat-send', onChatSend);
+    EventBus.on('chat-focus', onChatFocus);
+    this.events.once('shutdown', () => {
+      EventBus.off('chat-send', onChatSend);
+      EventBus.off('chat-focus', onChatFocus);
+    });
   }
 
   /**
@@ -124,6 +148,17 @@ export class OfficeScene extends Scene {
     // same call stack as the join-resolve wins the race against that in-flight
     // message (the message is still travelling over the wire while this runs).
     room.onMessage('zones', (zones: ZoneView[]) => this.renderZones(zones));
+
+    // Server → React: a chat line arrived (transient broadcast, not state). Relay
+    // it onto the bus, marking our own lines (echoed back to us) by comparing the
+    // sender's sessionId to ours. React listens on the bus, never on the room.
+    room.onMessage('chat', (msg: { from: string; text: string }) => {
+      EventBus.emit('chat-message', {
+        from: msg.from,
+        text: msg.text,
+        self: msg.from === room.sessionId,
+      });
+    });
 
     // `$` is the schema-callbacks proxy: `$(stateObject)` returns an object whose
     // collection fields expose onAdd/onRemove and whose schema fields expose
@@ -195,11 +230,16 @@ export class OfficeScene extends Scene {
   }
 
   update() {
-    // 1) READ INPUT — combine arrows and WASD with OR.
-    const left = this.cursors.left.isDown || this.wasd.left.isDown;
-    const right = this.cursors.right.isDown || this.wasd.right.isDown;
-    const up = this.cursors.up.isDown || this.wasd.up.isDown;
-    const down = this.cursors.down.isDown || this.wasd.down.isDown;
+    // 1) READ INPUT — combine arrows and WASD with OR. While the chat input is
+    // focused, force every direction false so the avatar can't move: the game
+    // keyboard is also disabled in onChatFocus, but this additionally neutralizes a
+    // key whose isDown froze true at the instant focus left the canvas (otherwise
+    // the avatar would slide forever). Remotes still interpolate below (step 6).
+    const typing = this.chatFocused;
+    const left = !typing && (this.cursors.left.isDown || this.wasd.left.isDown);
+    const right = !typing && (this.cursors.right.isDown || this.wasd.right.isDown);
+    const up = !typing && (this.cursors.up.isDown || this.wasd.up.isDown);
+    const down = !typing && (this.cursors.down.isDown || this.wasd.down.isDown);
 
     // 2) SET VELOCITY (not position): we set velocity and let the physics world
     // integrate position as pos += velocity · (delta/1000). That makes movement

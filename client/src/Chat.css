@@ -1,0 +1,66 @@
+.chat {
+  position: fixed;
+  left: 12px;
+  bottom: 12px;
+  width: 320px;
+  max-width: 40vw;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font:
+    13px/1.4 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
+  z-index: 10;
+}
+
+.chat__list {
+  max-height: 200px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(13, 20, 28, 0.72);
+  backdrop-filter: blur(4px);
+  color: #e6edf3;
+}
+
+/* Hide the message box entirely until there's at least one line. */
+.chat__list:empty {
+  display: none;
+}
+
+.chat__line {
+  word-break: break-word;
+}
+
+.chat__who {
+  margin-right: 6px;
+  color: #8aa0b4;
+}
+
+.chat__who--self {
+  color: #4fd1c5;
+}
+
+.chat__form {
+  display: flex;
+}
+
+.chat__input {
+  flex: 1;
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  background: rgba(13, 20, 28, 0.85);
+  color: #e6edf3;
+  font: inherit;
+  outline: none;
+}
+
+.chat__input:focus {
+  border-color: #4fd1c5;
+}

@@ -49,6 +49,27 @@ export class OfficeRoom extends Room<{ state: OfficeState }> {
       // Derive zone membership from the new position and sync it (delta-broadcast).
       player.zone = zoneAt(data.x, data.y);
     });
+
+    // CHAT: a TRANSIENT message, not state. Unlike positions (continuous "current
+    // truth" → schema sync), a chat line is an event that happened once → we
+    // broadcast it and forget. So it lives in messages, not OfficeState; the
+    // trade-off is that late joiners don't see prior lines (history/persistence is
+    // deferred — would need a ring buffer in state or a DB).
+    this.onMessage('chat', (client, data: { text?: unknown }) => {
+      // Validate on the SERVER — this is the security boundary (OWASP A03), not the
+      // client. Coerce-check the type first so a malformed payload can't throw on
+      // the string methods; trim before the empty-check; cap length server-side
+      // regardless of any client cap (client cap is UX, this one is the rule).
+      if (typeof data?.text !== 'string') return;
+      const text = data.text.trim();
+      if (!text) return;
+      const capped = text.slice(0, 500);
+      // Broadcast to everyone present INCLUDING the sender, so a single code path
+      // (receive → render) builds the message list; the client marks its own lines
+      // by comparing `from` to its sessionId. `from` is the sessionId (identity we
+      // control), never a client-settable name (which would be a spoofing vector).
+      this.broadcast('chat', { from: client.sessionId, text: capped });
+    });
   }
 
   // A new connection was accepted. Create its avatar at the spawn point and add it
