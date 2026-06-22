@@ -128,6 +128,11 @@ export class OfficeScene extends Scene {
     // Registered here and removed on scene 'shutdown' so a StrictMode/HMR teardown
     // doesn't leak listeners or leave stale closures pointing at a dead scene.
     const onChatSend = (text: string) => this.room?.send('chat', { text });
+    // F4a — relay a parsed slash-command (/seed, /stop) to the server's `agent-cmd`
+    // channel. Separate from chat so it never renders as a chat line; the server owns
+    // the ConversationManager and validates again.
+    const onAgentCommand = (cmd: { kind: 'seed'; topic: string } | { kind: 'stop' }) =>
+      this.room?.send('agent-cmd', cmd);
     const onChatFocus = (focused: boolean) => {
       this.chatFocused = focused;
       const kb = this.input.keyboard!;
@@ -174,10 +179,12 @@ export class OfficeScene extends Scene {
     };
 
     EventBus.on('chat-send', onChatSend);
+    EventBus.on('agent-command', onAgentCommand);
     EventBus.on('chat-focus', onChatFocus);
     EventBus.on('voice-join', onVoiceJoin);
     this.events.once('shutdown', () => {
       EventBus.off('chat-send', onChatSend);
+      EventBus.off('agent-command', onAgentCommand);
       EventBus.off('chat-focus', onChatFocus);
       EventBus.off('voice-join', onVoiceJoin);
       // Tear down all peer connections + stop the mic on scene teardown
@@ -250,7 +257,13 @@ export class OfficeScene extends Scene {
       if (sessionId === room.sessionId) return;
       // Mark an AI NPC with a floating name label so a human reads it as an agent.
       // Humans pass no label (their name HUD lives elsewhere); only NPCs are tagged.
-      const remote = new RemotePlayer(this, player.x, player.y, player.isNpc ? player.name : undefined);
+      const remote = new RemotePlayer(
+        this,
+        player.x,
+        player.y,
+        player.isNpc ? player.name : undefined,
+        player.isNpc ? player.color : undefined, // F4: each agent's roster colour
+      );
       this.remotes.set(sessionId, remote);
       // Each time the server updates this remote, repoint its interpolation target.
       $(player).onChange(() => remote.setTarget(player.x, player.y));

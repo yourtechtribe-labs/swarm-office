@@ -2,7 +2,9 @@ import { Room, type Client } from 'colyseus';
 import { OfficeState } from './schema/OfficeState';
 import { Player } from './schema/Player';
 import { ZONES, zoneAt } from './zones';
-import { NpcController, NPC_KEY } from './NpcController';
+import { NpcController } from './NpcController';
+import { ConversationManager } from './ConversationManager';
+import { ROSTER } from '../agents/roster';
 
 /** Spawn point — matches the client world centre (WORLD_W/2, WORLD_H/2). */
 const SPAWN_X = 800;
@@ -39,27 +41,49 @@ type JoinOptions = { name?: string };
 // Colyseus 0.17 typed Room: the generic is a bag of { state, metadata, client },
 // not the bare state type (that was the pre-0.17 form). We only need `state`.
 export class OfficeRoom extends Room<{ state: OfficeState }> {
-  /** Owns the AI NPC entry + its server-side wander (F2). One per room instance. */
-  private npc!: NpcController;
+  /** The AI agents' BODIES, keyed by agent key (`npc:seneca`, …). One per roster entry
+   *  (F4a generalizes F2's single NPC). The ConversationManager looks bodies up here. */
+  private npcs = new Map<string, NpcController>();
+  /** The agents' shared MIND: owns NPC↔NPC rounds (turn-taking, consensus, STOP). */
+  private conversation!: ConversationManager;
 
   onCreate() {
     // Install the authoritative state replica for this room.
     this.state = new OfficeState();
 
-    // F2a — spawn the AI NPC as a citizen of this room. It's a normal Player entry
-    // (isNpc=true) the NpcController owns; clients render it via the same player seam
-    // as any human remote. Spawned before any human joins so it's already present.
-    // Pass our serverLog so the NPC's events surface both in the terminal AND the
-    // in-browser log panel (bound here so the controller stays Colyseus-agnostic).
-    this.npc = new NpcController(this.state, (level, text) => this.serverLog(level, text));
-    this.npc.spawn();
+    // F4a — spawn the AI agents as citizens of this room from the DATA roster. Each is
+    // a normal Player entry (isNpc=true) an NpcController owns; clients render them via
+    // the same player seam as any human remote. Spawned before any human joins so they
+    // are already present. Pass our serverLog so their events surface both in the
+    // terminal AND the in-browser log panel (bound here so controllers stay Colyseus-
+    // agnostic). All v1 agents share a home zone so they can actually hear each other.
+    for (const agent of ROSTER) {
+      const body = new NpcController(this.state, agent, (level, text) => this.serverLog(level, text));
+      body.spawn();
+      this.npcs.set(agent.key, body);
+    }
 
-    // The ONE server simulation tick (see the class comment): drive the NPC's wander.
-    // Colyseus calls this every ~100 ms with the elapsed milliseconds; we hand the
-    // controller seconds (dt/1000) so its speed maths is in px/second. 100 ms (10 Hz)
-    // is plenty for a calm wander — the ~20 Hz patch loop broadcasts the changes and
-    // clients interpolate between them, so the NPC looks smooth at render rate.
-    this.setSimulationInterval((deltaMs) => this.npc.update(deltaMs / 1000), 100);
+    // The MIND. It serializes a round (one agent turn at a time, ONE in-flight gateway
+    // call ever) over a shared transcript, and reaches humans via the SAME zone-scoped
+    // delivery as chat. It only reads key + currentZone from each body (the AgentBody
+    // contract), so it never touches Colyseus directly.
+    this.conversation = new ConversationManager({
+      roster: ROSTER,
+      bodies: this.npcs,
+      broadcastChat: (zone, from, text) => this.broadcastChatToZone(zone, from, text),
+      log: (level, text) => this.serverLog(level, text),
+      turnDelayMs: 700, // a readable pace between turns (the probe uses 0)
+    });
+
+    // The ONE server simulation tick (see NpcController's class comment): drive every
+    // agent's wander. Colyseus calls this every ~100 ms with the elapsed milliseconds;
+    // we hand each controller seconds (dt/1000) so its speed maths is in px/second.
+    // 100 ms (10 Hz) is plenty for a calm wander — the ~20 Hz patch loop broadcasts the
+    // changes and clients interpolate between them, so the agents look smooth.
+    this.setSimulationInterval((deltaMs) => {
+      const dt = deltaMs / 1000;
+      for (const body of this.npcs.values()) body.update(dt);
+    }, 100);
 
     // CLIENT → SERVER: a client reports its own avatar's new position. We trust
     // it (relay model) and write it into state; the patch loop broadcasts the
@@ -93,17 +117,31 @@ export class OfficeRoom extends Room<{ state: OfficeState }> {
       const sender = this.state.players.get(client.sessionId);
       const senderZone = sender?.zone ?? '';
       this.broadcastChatToZone(senderZone, client.sessionId, capped);
+      // F4a — chat stays HUMAN-ONLY (spec §4.2). A plain human line no longer triggers
+      // an NPC reply: the agents converse only when a human SEEDS a topic via the
+      // separate `agent-cmd` channel below. Keeping NPC turns off this path is what
+      // structurally prevents an NPC line from re-entering here (no reply loop).
+    });
 
-      // F2 — let the NPC HEAR this in-zone human line and maybe reply. Done here,
-      // AFTER delivering the human line and ONLY inside onMessage: the NPC's reply
-      // is sent via broadcastChatToZone (below), never through onMessage, so it
-      // cannot re-enter observeChat → no reply loop (the guarantee is structural,
-      // not a flag). observeChat is async in F2b (it may call the M.IA gateway); the
-      // synchronous gates inside it set the cooldown before awaiting, so awaiting here
-      // is race-free. The reply is stamped from: NPC_KEY and scoped to the NPC's zone
-      // (== senderZone whenever it replies, since it only hears its own zone).
-      const reply = await this.npc.observeChat(client.sessionId, sender?.name ?? '', senderZone, capped);
-      if (reply) this.broadcastChatToZone(this.npc.currentZone, NPC_KEY, reply);
+    // F4a — the SEED/STOP command channel (the slash-commands /seed, /stop parsed
+    // client-side and relayed here as a dedicated message, so they never render as a
+    // chat line nor touch the human chat path). This is the human-in-the-loop control:
+    // a seed starts/re-seeds a round in the human's zone; a stop halts it. Validated
+    // server-side like every other input (the security boundary is here, not the client).
+    this.onMessage('agent-cmd', (client, data: { kind?: unknown; topic?: unknown }) => {
+      if (data?.kind === 'stop') {
+        this.conversation.stop();
+        return;
+      }
+      if (data?.kind === 'seed' && typeof data.topic === 'string') {
+        const topic = data.topic.trim().slice(0, 500);
+        if (!topic) return;
+        const sender = this.state.players.get(client.sessionId);
+        // Seed in the human's OWN zone, stamped from their sessionId (so the echoed
+        // seed shows as "you" on their client). The manager only starts a round if ≥2
+        // agents share that zone.
+        this.conversation.seed(sender?.zone ?? '', topic, client.sessionId, sender?.name ?? '');
+      }
     });
 
     // VOICE SIGNALING RELAY (F1b): WebRTC needs a side channel to exchange SDP

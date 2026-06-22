@@ -53,6 +53,13 @@ export interface SwarmEvents {
   /** React → scene: the user submitted a chat line; the scene relays it to the room. */
   'chat-send': (text: string) => void;
   /**
+   * React → scene: the user typed a slash-command to drive the AI agents (F4a). It's a
+   * SEPARATE channel from chat so it never renders as a chat line: `/seed <topic>`
+   * starts/re-seeds a round, `/stop` halts it. The scene relays it to the server's
+   * `agent-cmd` message, where the ConversationManager (and server-side validation) live.
+   */
+  'agent-command': (cmd: { kind: 'seed'; topic: string } | { kind: 'stop' }) => void;
+  /**
    * scene → React: a chat line arrived (self = our own message, echoed back).
    * `name` is the author's display name resolved from synced state when available
    * (e.g. the NPC "M.IA"); '' when the sender has no name yet (humans today), so the
@@ -90,4 +97,24 @@ export interface TypedEventBus {
 // One shared emitter instance for the whole app, cast to the typed facade. The
 // runtime object is a plain Phaser EventEmitter; the cast only adds compile-time
 // guarantees (zero runtime cost).
-export const EventBus = new Events.EventEmitter() as unknown as TypedEventBus;
+//
+// HMR FOOTGUN (why we stash the instance in import.meta.hot.data)
+// --------------------------------------------------------------
+// This module exports a SINGLETON. The bus bridges two worlds with very different
+// lifetimes under Vite HMR:
+//   • React components (Chat, ServerLog) hot-RELOAD — Fast Refresh re-imports this
+//     module and re-runs their effects.
+//   • The Phaser scene is created ONCE and is NOT re-created on HMR; it keeps the
+//     EventBus reference it captured at create() and its listeners live on THAT
+//     instance.
+// If editing this file made a FRESH emitter, React would emit on the new instance
+// while the running scene still listens on the old one — the bridge silently SPLITS,
+// and every React→scene event (e.g. 'chat-focus', which suspends the game keyboard so
+// you can type WASD into chat) stops arriving. Reusing the instance stashed in
+// `import.meta.hot.data` keeps BOTH halves on one emitter across hot reloads. In a
+// production build `import.meta.hot` is undefined and this is just `new EventEmitter()`.
+const hot = import.meta.hot;
+const preserved = (hot?.data as { bus?: TypedEventBus } | undefined)?.bus;
+export const EventBus: TypedEventBus =
+  preserved ?? (new Events.EventEmitter() as unknown as TypedEventBus);
+if (hot) hot.data.bus = EventBus;

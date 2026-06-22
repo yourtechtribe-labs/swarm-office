@@ -29,7 +29,7 @@ import type { MapSchema } from '@colyseus/schema';
  * mark it visually. Mirrors the server's `Player` field-for-field — the version
  * lock above is why this structural view must stay in sync with the schema.
  */
-export type PlayerView = { x: number; y: number; name: string; zone: string; isNpc: boolean };
+export type PlayerView = { x: number; y: number; name: string; zone: string; isNpc: boolean; color: string };
 
 /** Our compile-time view of the room state. */
 export type OfficeStateView = { players: MapSchema<PlayerView> };
