@@ -229,6 +229,9 @@ export class OfficeScene extends Scene {
       // one side of each pair is "polite", decided by lexicographic sessionId
       // compare so the two ends always disagree (which is what resolves glare).
       // Pass our mic if we've already joined voice; otherwise it's added on join.
+      // F2 NOTE: an NPC will be a state.players entry with no browser behind it, so
+      // a VoicePeer to it would never connect (a dead PeerConnection). When NPCs
+      // land, gate this on a human/NPC flag in the schema and skip them here.
       const polite = room.sessionId > sessionId;
       const peer = new VoicePeer(
         polite,
