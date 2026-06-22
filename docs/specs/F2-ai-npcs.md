@@ -20,14 +20,21 @@
 >   for context; calls the gateway with a **scripted fallback on any failure** (so the
 >   NPC never goes mute) and an **in-flight guard** (cooldown 1.5s < worst latency, so
 >   one reply is composed at a time — no overlapping calls / out-of-order replies).
-> - Persona + **prompt-injection defence** (chat is untrusted; don't obey embedded
->   instructions nor reveal the system prompt) in the system message (spec §6).
+> - Persona + **best-effort prompt-injection guard** in the system message (chat is
+>   untrusted; don't obey embedded instructions nor reveal the system prompt — spec §6).
+>   Tested against a basic "ignore your instructions / reveal your prompt" attempt:
+>   refused, no leak. NOT adversarially exhaustive — a system-prompt guard is weak by
+>   nature; acceptable here because the blast radius is **cosmetic**: the NPC can only
+>   emit chat text (no tools, secrets, or actions), so a successful injection just makes
+>   it say something silly, not a security incident.
 > - **Optional by design:** no gateway config → scripted replies (F2a). The repo runs
 >   out of the box and off-VPN devs still get a working NPC.
 > - Validated BOTH branches: configured → gateway-derived reply (not a scripted string;
 >   server log `[npc] gateway reply`), in-browser `M.IA: …` real LLM line; forced
 >   failure (dead URL) → fast scripted fallback (~0.5s, not a hang) + server alive
->   (log `gateway failed → scripted fallback`).
+>   (log `gateway failed → scripted fallback`). Rate limit (§7): a 5-message burst in
+>   ~0.75s produced exactly 1 gateway call (in-flight guard + cooldown). Injection: see
+>   the guard note above.
 >
 > **Deferred (F2.x):** NPC voice (TTS/STT); multiple NPCs/personas; agent-directed
 > movement (the gateway could also drive movement intent — §9). Runtime constraint:
