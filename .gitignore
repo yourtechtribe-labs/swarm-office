@@ -34,3 +34,8 @@ coverage/
 *.sqlite
 *.sqlite3
 pgdata/
+
+# Claude Code — local config/state/memory (machine-specific, never commit).
+# Note: the root CLAUDE.md (project conventions) IS committed; only the .claude/
+# directory is ignored.
+.claude/
