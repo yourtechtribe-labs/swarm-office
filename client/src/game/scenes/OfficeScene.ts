@@ -191,8 +191,15 @@ export class OfficeScene extends Scene {
     // it onto the bus, marking our own lines (echoed back to us) by comparing the
     // sender's sessionId to ours. React listens on the bus, never on the room.
     room.onMessage('chat', (msg: { from: string; text: string }) => {
+      // Resolve the author's display name from synced state. The server stamps `from`
+      // as a sessionId / NPC key (anti-spoof); the human-readable name lives on the
+      // Player schema (the NPC sets "M.IA"; humans are '' for now). Reading it here
+      // keeps the wire message tiny (no name duplicated per line) and works for any
+      // future human names with no further change.
+      const name = room.state.players.get(msg.from)?.name ?? '';
       EventBus.emit('chat-message', {
         from: msg.from,
+        name,
         text: msg.text,
         self: msg.from === room.sessionId,
       });

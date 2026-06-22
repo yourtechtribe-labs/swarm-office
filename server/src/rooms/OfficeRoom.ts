@@ -2,7 +2,7 @@ import { Room, type Client } from 'colyseus';
 import { OfficeState } from './schema/OfficeState';
 import { Player } from './schema/Player';
 import { ZONES, zoneAt } from './zones';
-import { NpcController } from './NpcController';
+import { NpcController, NPC_KEY } from './NpcController';
 
 /** Spawn point — matches the client world centre (WORLD_W/2, WORLD_H/2). */
 const SPAWN_X = 800;
@@ -86,20 +86,19 @@ export class OfficeRoom extends Room<{ state: OfficeState }> {
       const text = data.text.trim();
       if (!text) return;
       const capped = text.slice(0, 500);
-      // ZONE-SCOPED delivery (F1a): send only to clients in the SAME zone as the
-      // sender — the no-zone hub ('') is its own group (`'' === ''`). player.zone is
-      // computed authoritatively on join + every move (Slice 3), so we just read it.
-      // The sender always matches its own zone, so it still receives its own line
-      // (single receive→render path; the client marks its own lines via `from`).
       // `from` is the server-controlled sessionId — never a client-settable name
-      // (anti-spoof). This replaces the earlier global broadcast.
+      // (anti-spoof). player.zone is computed authoritatively on join + every move.
       const senderZone = this.state.players.get(client.sessionId)?.zone ?? '';
-      for (const c of this.clients) {
-        const recipientZone = this.state.players.get(c.sessionId)?.zone ?? '';
-        if (recipientZone === senderZone) {
-          c.send('chat', { from: client.sessionId, text: capped });
-        }
-      }
+      this.broadcastChatToZone(senderZone, client.sessionId, capped);
+
+      // F2a — let the NPC HEAR this in-zone human line and maybe reply. Done here,
+      // AFTER delivering the human line and ONLY inside onMessage: the NPC's reply
+      // is sent via broadcastChatToZone (below), never through onMessage, so it
+      // cannot re-enter observeChat → no reply loop (the guarantee is structural,
+      // not a flag). The reply is stamped from: NPC_KEY and scoped to the NPC's zone
+      // (== senderZone whenever it replies, since it only hears its own zone).
+      const reply = this.npc.observeChat(client.sessionId, senderZone, capped);
+      if (reply) this.broadcastChatToZone(this.npc.currentZone, NPC_KEY, reply);
     });
 
     // VOICE SIGNALING RELAY (F1b): WebRTC needs a side channel to exchange SDP
@@ -117,6 +116,29 @@ export class OfficeRoom extends Room<{ state: OfficeState }> {
       const target = this.clients.getById(data.to);
       target?.send('signal', { from: client.sessionId, data: data.data });
     });
+  }
+
+  /**
+   * Deliver a chat line to everyone in `zone`, stamped `from` (a sessionId or the
+   * NPC key). Extracted (F2a) so the human path and the NPC's own replies share ONE
+   * delivery rule — an NPC has no WebSocket, so it cannot reuse the client's
+   * onMessage path; this is how its line reaches the right humans.
+   *
+   * ZONE-SCOPED delivery (F1a): send only to clients in the SAME zone — the no-zone
+   * hub ('') is its own group (`'' === ''`). A human sender always matches its own
+   * zone, so it still receives its own line (single receive→render path; the client
+   * marks its own lines by comparing `from` to its sessionId). `from` is always
+   * server-controlled (a sessionId or NPC_KEY), never a client-settable name
+   * (anti-spoof). NB: recipients are `this.clients` (real connections) — the NPC is
+   * not a client, so it never needs to "receive" anything.
+   */
+  private broadcastChatToZone(zone: string, from: string, text: string) {
+    for (const c of this.clients) {
+      const recipientZone = this.state.players.get(c.sessionId)?.zone ?? '';
+      if (recipientZone === zone) {
+        c.send('chat', { from, text });
+      }
+    }
   }
 
   // A new connection was accepted. Create its avatar at the spawn point and add it

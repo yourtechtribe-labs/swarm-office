@@ -52,6 +52,21 @@ const ZONE_MARGIN = 40;
 /** "Arrived" threshold (px): within this of the target, pick a new one. Avoids the
  *  asymptotic crawl of lerp-to-point (it never exactly reaches, so we snap-and-retarget). */
 const ARRIVE_EPS = 4;
+/** Minimum gap (ms) between NPC replies. A debounce so a human flooding the chat
+ *  can't make the NPC answer every line. For the scripted F2a this just keeps it
+ *  calm; in F2b the SAME gate caps how often we pay for an LLM call (spec §6). */
+const REPLY_COOLDOWN_MS = 1500;
+
+/** Scripted replies for F2a (no AI yet). F2b swaps this single function out for a
+ *  call to the M.IA gateway — everything else (hearing, zone scoping, cooldown,
+ *  broadcast) stays. A tiny bit of keyword shaping so it doesn't feel like one canned
+ *  string, while staying fully deterministic (no external dependency). */
+function scriptedReply(text: string): string {
+  const t = text.toLowerCase();
+  if (/\b(hola|hi|hey|buenas|hello)\b/.test(t)) return '¡Hola! Soy M.IA, vivo en el Lobby 👋';
+  if (t.includes('?')) return 'Buena pregunta. De momento solo sé deambular por aquí (pronto me conectarán a una IA de verdad).';
+  return `Te he oído: "${text.slice(0, 80)}"`;
+}
 
 export class NpcController {
   /** The live schema entry we own once spawned (kept so update() can mutate it). */
@@ -61,8 +76,18 @@ export class NpcController {
   /** Current wander destination in world px; the NPC walks toward it. */
   private targetX = 0;
   private targetY = 0;
+  /** Timestamp (ms) of the NPC's last reply, for the cooldown debounce. */
+  private lastReplyAt = 0;
 
   constructor(private readonly state: OfficeState) {}
+
+  /** The synthetic state key of the NPC (so the room can stamp its chat lines). */
+  readonly key = NPC_KEY;
+
+  /** The NPC's current zone id (the room broadcasts replies to this zone). */
+  get currentZone(): string {
+    return this.npc?.zone ?? '';
+  }
 
   /**
    * Create the NPC entry in the room state. Called once from OfficeRoom.onCreate.
@@ -121,6 +146,36 @@ export class NpcController {
     // wander stays inside the home rect, so this stays HOME_ZONE_ID — but we derive
     // it rather than hard-code it, so a future free-roaming NPC just works.
     this.npc.zone = zoneAt(this.npc.x, this.npc.y);
+  }
+
+  /**
+   * Decide whether the NPC replies to a human chat line, and with what (F2a).
+   *
+   * Called by OfficeRoom from INSIDE its `onMessage('chat')` handler, after the
+   * human line has been delivered. Returns the reply text, or null to stay silent.
+   * The room broadcasts a non-null reply via the same zone-scoped path as humans,
+   * stamped `from: NPC_KEY` — crucially NOT back through `onMessage`, so the NPC's
+   * own line can never re-enter here (no reply loop). That structural guarantee is
+   * why this method only reads/decides; it never broadcasts itself.
+   *
+   * Gates (cheap → expensive, so we bail early):
+   *   1. Same zone — the NPC only hears its own zone, mirroring the zone-scoped chat
+   *      humans get. (Belt-and-suspenders: the room already scopes delivery, but the
+   *      NPC must independently decide, since it isn't a `client` in the send loop.)
+   *   2. Not itself — defensive; NPC lines don't reach onMessage, but guard anyway.
+   *   3. Cooldown — at most one reply per REPLY_COOLDOWN_MS (the debounce that, in
+   *      F2b, will also bound LLM spend — spec §6).
+   */
+  observeChat(senderKey: string, senderZone: string, text: string): string | null {
+    if (!this.npc) return null;
+    if (senderKey === NPC_KEY) return null;
+    if (senderZone !== this.npc.zone) return null;
+    const now = Date.now();
+    if (now - this.lastReplyAt < REPLY_COOLDOWN_MS) return null;
+    this.lastReplyAt = now;
+    // F2b will replace this synchronous scripted call with an async gateway request
+    // (and the broadcast will move into the awaited callback). The seam is here.
+    return scriptedReply(text);
   }
 
   /** Choose a random point inside the home zone (minus a margin) as the next target. */

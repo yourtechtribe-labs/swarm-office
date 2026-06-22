@@ -22,7 +22,7 @@ import './Chat.css';
  * characters, not executed (no XSS). The server is the real validation boundary
  * (trim + length cap); this is defence in depth.
  */
-type ChatLine = { id: number; from: string; text: string; self: boolean };
+type ChatLine = { id: number; from: string; name: string; text: string; self: boolean };
 const MAX_LINES = 50;
 
 export function Chat() {
@@ -33,7 +33,7 @@ export function Chat() {
 
   // Receive: scene → bus → here. slice(-MAX_LINES) bounds memory + DOM nodes.
   useEffect(() => {
-    const onMessage = (msg: { from: string; text: string; self: boolean }) =>
+    const onMessage = (msg: { from: string; name: string; text: string; self: boolean }) =>
       setLines((prev) => [...prev, { ...msg, id: nextId.current++ }].slice(-MAX_LINES));
     EventBus.on('chat-message', onMessage);
     return () => {
@@ -64,7 +64,9 @@ export function Chat() {
         {lines.map((l) => (
           <div key={l.id} className="chat__line">
             <span className={l.self ? 'chat__who chat__who--self' : 'chat__who'}>
-              {l.self ? 'you' : l.from.slice(0, 4)}
+              {/* Prefer a real display name (e.g. the NPC "M.IA"); fall back to a
+                  short id when the sender is unnamed (humans, for now). */}
+              {l.self ? 'you' : l.name || l.from.slice(0, 4)}
             </span>
             <span className="chat__text">{l.text}</span>
           </div>
