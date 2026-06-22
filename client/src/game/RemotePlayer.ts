@@ -28,11 +28,20 @@ import type { GameObjects, Scene } from 'phaser';
  */
 export class RemotePlayer {
   readonly sprite: GameObjects.Sprite;
+  /** Optional floating name label above the sprite (used to mark AI NPCs — F2). */
+  private readonly label?: GameObjects.Text;
   // The last authoritative position the server reported. The sprite chases this.
   private targetX: number;
   private targetY: number;
 
-  constructor(scene: Scene, x: number, y: number) {
+  /**
+   * @param label optional text shown above the avatar. We use it to mark an AI NPC
+   *   visually (the spec calls for a label rather than a tint — `setTint` is a
+   *   Phaser 4 breaking change, so a `Text` is both safe and clearer than an
+   *   alpha/colour trick). Humans pass no label today; name labels for humans are a
+   *   trivial future reuse of this same seam.
+   */
+  constructor(scene: Scene, x: number, y: number, label?: string) {
     this.sprite = scene.add.sprite(x, y, 'player').setScale(2);
     // Slight transparency so a remote avatar reads as distinct from your own.
     // (We avoid setTint on purpose — the tint API is one of Phaser 4's breaking
@@ -44,6 +53,23 @@ export class RemotePlayer {
     this.sprite.setDepth(10);
     this.targetX = x;
     this.targetY = y;
+
+    if (label) {
+      // Centre the label horizontally over the sprite and sit it just above the
+      // head. setOrigin(0.5,1) anchors the text by its bottom-centre so positioning
+      // is "place the label's bottom at this point". Depth 11 keeps it above the
+      // avatars (10) so it's never occluded by another sprite. We reposition it in
+      // interpolate(), so the initial coords just avoid a one-frame flash at (0,0).
+      this.label = scene.add
+        .text(x, y - this.sprite.displayHeight / 2, label, {
+          fontSize: '14px',
+          color: '#ffd866',
+          backgroundColor: '#00000080',
+          padding: { x: 4, y: 2 },
+        })
+        .setOrigin(0.5, 1)
+        .setDepth(11);
+    }
   }
 
   /** The server told us this remote's new authoritative position. */
@@ -62,9 +88,17 @@ export class RemotePlayer {
     const LERP = 0.2;
     this.sprite.x += (this.targetX - this.sprite.x) * LERP;
     this.sprite.y += (this.targetY - this.sprite.y) * LERP;
+    // Keep the label glued above the (now-moved) sprite. Done here, after the lerp,
+    // so the label tracks the smoothed position every frame rather than lagging it.
+    if (this.label) {
+      this.label.setPosition(this.sprite.x, this.sprite.y - this.sprite.displayHeight / 2);
+    }
   }
 
   destroy(): void {
     this.sprite.destroy();
+    // Destroy the label too, or it would linger as an orphan GameObject after the
+    // avatar despawns (a leak that also paints stale text on screen).
+    this.label?.destroy();
   }
 }

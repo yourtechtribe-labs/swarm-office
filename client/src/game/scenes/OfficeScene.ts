@@ -219,7 +219,9 @@ export class OfficeScene extends Scene {
       // render ourselves twice (the relay model: we never render the server's copy
       // of our own position; we own it locally for zero input lag).
       if (sessionId === room.sessionId) return;
-      const remote = new RemotePlayer(this, player.x, player.y);
+      // Mark an AI NPC with a floating name label so a human reads it as an agent.
+      // Humans pass no label (their name HUD lives elsewhere); only NPCs are tagged.
+      const remote = new RemotePlayer(this, player.x, player.y, player.isNpc ? player.name : undefined);
       this.remotes.set(sessionId, remote);
       // Each time the server updates this remote, repoint its interpolation target.
       $(player).onChange(() => remote.setTarget(player.x, player.y));
@@ -229,16 +231,22 @@ export class OfficeScene extends Scene {
       // one side of each pair is "polite", decided by lexicographic sessionId
       // compare so the two ends always disagree (which is what resolves glare).
       // Pass our mic if we've already joined voice; otherwise it's added on join.
-      // F2 NOTE: an NPC will be a state.players entry with no browser behind it, so
-      // a VoicePeer to it would never connect (a dead PeerConnection). When NPCs
-      // land, gate this on a human/NPC flag in the schema and skip them here.
-      const polite = room.sessionId > sessionId;
-      const peer = new VoicePeer(
-        polite,
-        (data) => room.send('signal', { to: sessionId, data }),
-        this.localStream ?? null,
-      );
-      this.peers.set(sessionId, peer);
+      //
+      // F2: an NPC is a state.players entry with NO browser behind it, so a VoicePeer
+      // to it would never connect (a dead PeerConnection that hangs in negotiation).
+      // We gate peer creation on the synced isNpc flag and skip NPCs — the voice mesh
+      // stays human-only. (The other two peer touch-points need no guard: onRemove's
+      // cleanup and the per-frame proximity gate both iterate `this.peers`, so an NPC
+      // with no peer entry is excluded for free.)
+      if (!player.isNpc) {
+        const polite = room.sessionId > sessionId;
+        const peer = new VoicePeer(
+          polite,
+          (data) => room.send('signal', { to: sessionId, data }),
+          this.localStream ?? null,
+        );
+        this.peers.set(sessionId, peer);
+      }
     });
 
     // A player left: despawn its avatar.

@@ -40,4 +40,20 @@ export class Player extends Schema {
    * every client sees — the foundation for F1 proximity grouping.
    */
   @type('string') zone = '';
+  /**
+   * Is this avatar an AI NPC (no browser behind it) rather than a human? (F2)
+   *
+   * WHY THIS LIVES IN THE SYNCED SCHEMA (not server-only state)
+   * ----------------------------------------------------------
+   * An NPC is, deliberately, *just another Player entry* — the client already
+   * spawns/moves it via `players.onAdd`/`onChange` with zero new code (the "player
+   * seam"). But two client behaviours must differ for an NPC, so the client has to
+   * KNOW it's an NPC — hence this flag rides the same delta-sync as x/y/zone:
+   *   1. SKIP the WebRTC VoicePeer: there is no peer to connect to (a dead
+   *      PeerConnection that would never negotiate). The voice mesh stays human-only.
+   *   2. RENDER a marker (a name label) so a human reads it as an agent, not a player.
+   * Defaults false, so every human (who never sets it) is correctly a non-NPC; only
+   * the server-spawned NPC flips it true.
+   */
+  @type('boolean') isNpc = false;
 }

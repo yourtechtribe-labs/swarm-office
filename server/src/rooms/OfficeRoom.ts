@@ -2,6 +2,7 @@ import { Room, type Client } from 'colyseus';
 import { OfficeState } from './schema/OfficeState';
 import { Player } from './schema/Player';
 import { ZONES, zoneAt } from './zones';
+import { NpcController } from './NpcController';
 
 /** Spawn point — matches the client world centre (WORLD_W/2, WORLD_H/2). */
 const SPAWN_X = 800;
@@ -22,20 +23,41 @@ type JoinOptions = { name?: string };
  *   onLeave()  → each time a client disconnects.
  *   onMessage()→ registered handlers fire when a client sends that message type.
  *
- * THE SERVER TICK (what happens "for free")
- * -----------------------------------------
- * We do NOT run a simulation loop here (relay model — see OfficeState). We only
- * mutate state in response to "move" messages. Colyseus runs its own patch loop
+ * THE SERVER TICK (what happens "for free", and the one exception)
+ * ----------------------------------------------------------------
+ * For HUMANS this is a pure relay: we mutate state only in response to "move"
+ * messages (relay model — see OfficeState). Colyseus runs its own patch loop
  * (~20 Hz by default): every tick it diffs the state, encodes the binary deltas,
  * and broadcasts them to all clients. That's the third "clock" of the system; our
  * job is just to keep OfficeState correct.
+ *
+ * THE ONE EXCEPTION (F2): an AI NPC has no client sending "move", so we add a
+ * single server-driven simulation tick (`setSimulationInterval` below) that lets
+ * the NpcController advance the NPC's position. It is the only state we mutate
+ * without a client message; humans stay pure relay. See NpcController for the why.
  */
 // Colyseus 0.17 typed Room: the generic is a bag of { state, metadata, client },
 // not the bare state type (that was the pre-0.17 form). We only need `state`.
 export class OfficeRoom extends Room<{ state: OfficeState }> {
+  /** Owns the AI NPC entry + its server-side wander (F2). One per room instance. */
+  private npc!: NpcController;
+
   onCreate() {
     // Install the authoritative state replica for this room.
     this.state = new OfficeState();
+
+    // F2a — spawn the AI NPC as a citizen of this room. It's a normal Player entry
+    // (isNpc=true) the NpcController owns; clients render it via the same player seam
+    // as any human remote. Spawned before any human joins so it's already present.
+    this.npc = new NpcController(this.state);
+    this.npc.spawn();
+
+    // The ONE server simulation tick (see the class comment): drive the NPC's wander.
+    // Colyseus calls this every ~100 ms with the elapsed milliseconds; we hand the
+    // controller seconds (dt/1000) so its speed maths is in px/second. 100 ms (10 Hz)
+    // is plenty for a calm wander — the ~20 Hz patch loop broadcasts the changes and
+    // clients interpolate between them, so the NPC looks smooth at render rate.
+    this.setSimulationInterval((deltaMs) => this.npc.update(deltaMs / 1000), 100);
 
     // CLIENT → SERVER: a client reports its own avatar's new position. We trust
     // it (relay model) and write it into state; the patch loop broadcasts the
