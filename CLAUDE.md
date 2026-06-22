@@ -63,12 +63,17 @@ player.zone) + F1b distance-gated voice (WebRTC **P2P mesh**, audio-only, ≤5, 
 LiveKit; signaling over Colyseus, perfect negotiation; connections follow presence,
 audio follows distance). Spec: `docs/specs/F1-proximity-comms.md`.
 
-**F2 — AI NPCs:** F2a **done** — a scripted NPC ("M.IA") is a normal `players` entry
-(`isNpc=true`) the server spawns + wanders via the first simulation tick; it hears
-in-zone chat and replies (scripted), shown with a name label; NPCs get NO VoicePeer
-(voice mesh stays human-only). Spec: `docs/specs/F2-ai-npcs.md`. **Next: F2b** — swap
-`NpcController.scriptedReply()` for the real M.IA gateway (explore its API first —
-spec §5). Then F3 scale (SFU + TURN + video).
+**F2 — AI NPCs (done):** an NPC ("M.IA") is a normal `players` entry (`isNpc=true`)
+the server spawns + wanders via the first simulation tick; it hears in-zone chat and
+replies, shown with a name label; NPCs get NO VoicePeer (voice mesh stays human-only).
+F2b wired the reply to a real **OpenAI-compatible LLM gateway** (`server/src/rooms/
+miaGateway.ts`, `node:https`, env-config in `server/.env`, scripted fallback when
+unset/on error). The gateway key is **server-side only**. Spec: `docs/specs/F2-ai-npcs.md`.
+**Next: F3** scale (SFU + TURN + video); deferred F2.x = NPC voice, multiple personas.
+
+**Gateway env (F2b):** `MIA_GATEWAY_URL/_AUTH/_MODEL/_INSECURE_TLS` in `server/.env`
+(gitignored; see `.env.example`). Current target = UAB DCC `lis-2.uab.cat` vLLM
+(`Modelo-bXs2`), **reachable only on UAB VPN** — off-VPN the NPC falls back to scripted.
 
 ## Running the dev stack
 

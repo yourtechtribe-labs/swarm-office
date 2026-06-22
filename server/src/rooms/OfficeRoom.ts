@@ -77,7 +77,7 @@ export class OfficeRoom extends Room<{ state: OfficeState }> {
     // to the right recipients and forget. So it lives in messages, not OfficeState;
     // the trade-off is that late joiners don't see prior lines (history/persistence
     // is deferred — would need a ring buffer in state or a DB).
-    this.onMessage('chat', (client, data: { text?: unknown }) => {
+    this.onMessage('chat', async (client, data: { text?: unknown }) => {
       // Validate on the SERVER — this is the security boundary (OWASP A03), not the
       // client. Coerce-check the type first so a malformed payload can't throw on
       // the string methods; trim before the empty-check; cap length server-side
@@ -88,16 +88,19 @@ export class OfficeRoom extends Room<{ state: OfficeState }> {
       const capped = text.slice(0, 500);
       // `from` is the server-controlled sessionId — never a client-settable name
       // (anti-spoof). player.zone is computed authoritatively on join + every move.
-      const senderZone = this.state.players.get(client.sessionId)?.zone ?? '';
+      const sender = this.state.players.get(client.sessionId);
+      const senderZone = sender?.zone ?? '';
       this.broadcastChatToZone(senderZone, client.sessionId, capped);
 
-      // F2a — let the NPC HEAR this in-zone human line and maybe reply. Done here,
+      // F2 — let the NPC HEAR this in-zone human line and maybe reply. Done here,
       // AFTER delivering the human line and ONLY inside onMessage: the NPC's reply
       // is sent via broadcastChatToZone (below), never through onMessage, so it
       // cannot re-enter observeChat → no reply loop (the guarantee is structural,
-      // not a flag). The reply is stamped from: NPC_KEY and scoped to the NPC's zone
+      // not a flag). observeChat is async in F2b (it may call the M.IA gateway); the
+      // synchronous gates inside it set the cooldown before awaiting, so awaiting here
+      // is race-free. The reply is stamped from: NPC_KEY and scoped to the NPC's zone
       // (== senderZone whenever it replies, since it only hears its own zone).
-      const reply = this.npc.observeChat(client.sessionId, senderZone, capped);
+      const reply = await this.npc.observeChat(client.sessionId, sender?.name ?? '', senderZone, capped);
       if (reply) this.broadcastChatToZone(this.npc.currentZone, NPC_KEY, reply);
     });
 

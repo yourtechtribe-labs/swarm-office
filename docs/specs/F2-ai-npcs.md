@@ -1,10 +1,38 @@
 # F2 — AI agents as NPCs (M.IA / Predicta citizens of the office)
 
-> Status: **F2a DONE** (scripted NPC — all plumbing, zero external deps). **F2b
-> (wire to the M.IA gateway) is next.** This is the differentiator of swarm-office
-> vs WorkAdventure: AI agents are first-class office citizens, not bolted-on.
-> Date: 2026-06-22. Author: Albert + Claude.
+> Status: **F2a + F2b DONE.** The NPC is a real AI: it hears in-zone chat and replies
+> via an OpenAI-compatible LLM gateway (optional; scripted fallback when unset). This
+> is the differentiator of swarm-office vs WorkAdventure: AI agents are first-class
+> office citizens, not bolted-on. Date: 2026-06-22. Author: Albert + Claude.
 > Read this + `docs/SPEC.md` + the F0/F1 specs before implementing.
+>
+> **F2b implementation (commit `feat(npc): F2b`):** the M.IA gateway is an
+> OpenAI-compatible chat-completions endpoint (verified: UAB DCC `lis-2.uab.cat` vLLM
+> serving `Modelo-bXs2` = Qwen3.6-35B-A3B-FP8; reachable only on UAB VPN; ~0.4–3.6s).
+> - `server/src/rooms/miaGateway.ts` — thin `node:https` client (no `undici`/`fetch`
+>   dep). Config via env (`MIA_GATEWAY_URL`/`_AUTH`/`_MODEL`/`_INSECURE_TLS`, see
+>   `server/.env.example`); **server-side only**, key never reaches the client.
+>   `enable_thinking:false` (Qwen returns no reasoning), `max_tokens` + timeout caps.
+>   TLS `rejectUnauthorized:false` is **scoped to one Agent** and opt-in (the endpoint's
+>   internal cert doesn't validate hostname) — never `NODE_TLS_REJECT_UNAUTHORIZED`.
+> - `NpcController.observeChat` is now async: synchronous gates (zone, self, in-flight,
+>   cooldown) set BEFORE the await keep it race-free; it keeps a bounded history window
+>   for context; calls the gateway with a **scripted fallback on any failure** (so the
+>   NPC never goes mute) and an **in-flight guard** (cooldown 1.5s < worst latency, so
+>   one reply is composed at a time — no overlapping calls / out-of-order replies).
+> - Persona + **prompt-injection defence** (chat is untrusted; don't obey embedded
+>   instructions nor reveal the system prompt) in the system message (spec §6).
+> - **Optional by design:** no gateway config → scripted replies (F2a). The repo runs
+>   out of the box and off-VPN devs still get a working NPC.
+> - Validated BOTH branches: configured → gateway-derived reply (not a scripted string;
+>   server log `[npc] gateway reply`), in-browser `M.IA: …` real LLM line; forced
+>   failure (dead URL) → fast scripted fallback (~0.5s, not a hang) + server alive
+>   (log `gateway failed → scripted fallback`).
+>
+> **Deferred (F2.x):** NPC voice (TTS/STT); multiple NPCs/personas; agent-directed
+> movement (the gateway could also drive movement intent — §9). Runtime constraint:
+> the UAB gateway needs UAB VPN; document a public/Anthropic gateway option if
+> swarm-office is ever demoed off-campus.
 >
 > **F2a implementation (commits `feat(npc): F2a-1` + `F2a-2`):**
 > - `Player.isNpc` synced flag; `NpcController` spawns one NPC (`npc:mia`, "M.IA")
