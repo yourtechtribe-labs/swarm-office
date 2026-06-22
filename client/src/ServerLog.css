@@ -1,0 +1,82 @@
+/* Bottom-right panel (HUD is top-left, Join voice top-right, chat bottom-left, so
+   bottom-right is the free corner). Same dark translucent language as the chat. */
+.srvlog {
+  position: fixed;
+  right: 12px;
+  bottom: 12px;
+  width: 340px;
+  max-width: 42vw;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font:
+    12px/1.4 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
+  z-index: 10;
+}
+
+.srvlog__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  border: none;
+  border-radius: 8px;
+  background: rgba(13, 20, 28, 0.82);
+  color: #8aa0b4;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.srvlog__count {
+  margin-left: auto;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #e6edf3;
+}
+
+.srvlog__chevron {
+  color: #4fd1c5;
+}
+
+.srvlog__list {
+  max-height: 38vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(13, 20, 28, 0.72);
+  backdrop-filter: blur(4px);
+  color: #cdd9e5;
+}
+
+.srvlog__empty {
+  color: #5b6b7b;
+  font-style: italic;
+}
+
+.srvlog__line {
+  word-break: break-word;
+}
+
+.srvlog__time {
+  margin-right: 8px;
+  color: #5b6b7b;
+}
+
+/* Level tints: info neutral, warn amber, error red — so a fallback (warn) pops. */
+.srvlog__line--warn .srvlog__text {
+  color: #f6ad55;
+}
+
+.srvlog__line--error .srvlog__text {
+  color: #fc8181;
+}

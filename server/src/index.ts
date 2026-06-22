@@ -3,6 +3,17 @@ import cors from 'cors';
 import type { Request, Response } from 'express';
 import { OfficeRoom } from './rooms/OfficeRoom';
 
+// Load server-side config (the optional M.IA gateway — F2b) from a local .env, the
+// zero-dependency Node 22 way (`process.loadEnvFile`, no `dotenv` package). The file
+// is gitignored and holds the gateway URL/key, which must NEVER reach the client.
+// Wrapped in try/catch: no .env is the normal case (NPC falls back to scripted
+// replies), not an error. Done before listen() so env is set before the first chat.
+try {
+  process.loadEnvFile();
+} catch {
+  /* no .env present — fine; the gateway just stays unconfigured */
+}
+
 /**
  * ═══════════════════════════════════════════════════════════════════════════
  *  Server entrypoint

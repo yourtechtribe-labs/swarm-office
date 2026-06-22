@@ -3,6 +3,7 @@ import { PhaserGame, type PhaserGameRef } from './game/PhaserGame';
 import { EventBus } from './game/EventBus';
 import { Chat } from './Chat';
 import { VoiceControls } from './VoiceControls';
+import { ServerLog } from './ServerLog';
 import './App.css';
 
 /**
@@ -55,10 +56,11 @@ function App() {
         </span>
         <span className="hud__line">in office: {present}</span>
         <span className="hud__line">zone: {zone || '—'}</span>
-        <span className="hud__hint">WASD / arrows to move</span>
+        <span className="hud__hint">WASD / arrows to move · C to chat · Esc to exit</span>
       </div>
       <VoiceControls />
       <Chat />
+      <ServerLog />
     </div>
   );
 }

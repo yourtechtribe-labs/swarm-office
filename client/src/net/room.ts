@@ -22,8 +22,14 @@ import type { MapSchema } from '@colyseus/schema';
  * silently wrong (fields arrive undefined), not with a clean error.
  */
 
-/** Our compile-time view of the server's Player schema. */
-export type PlayerView = { x: number; y: number; name: string; zone: string };
+/**
+ * Our compile-time view of the server's Player schema. `isNpc` (F2) lets the
+ * client treat an AI NPC differently from a human while still rendering it through
+ * the same player seam: skip its WebRTC VoicePeer (no browser to connect to) and
+ * mark it visually. Mirrors the server's `Player` field-for-field — the version
+ * lock above is why this structural view must stay in sync with the schema.
+ */
+export type PlayerView = { x: number; y: number; name: string; zone: string; isNpc: boolean };
 
 /** Our compile-time view of the room state. */
 export type OfficeStateView = { players: MapSchema<PlayerView> };

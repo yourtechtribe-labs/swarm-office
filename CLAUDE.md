@@ -61,8 +61,19 @@ input validation (done). **F0 complete.**
 **F1 — proximity comms (done):** F1a zone-scoped text chat (filter broadcast by
 player.zone) + F1b distance-gated voice (WebRTC **P2P mesh**, audio-only, ≤5, no
 LiveKit; signaling over Colyseus, perfect negotiation; connections follow presence,
-audio follows distance). Spec: `docs/specs/F1-proximity-comms.md`. Next: F2 AI NPCs
-(M.IA gateway), F3 scale (SFU + TURN + video).
+audio follows distance). Spec: `docs/specs/F1-proximity-comms.md`.
+
+**F2 — AI NPCs (done):** an NPC ("M.IA") is a normal `players` entry (`isNpc=true`)
+the server spawns + wanders via the first simulation tick; it hears in-zone chat and
+replies, shown with a name label; NPCs get NO VoicePeer (voice mesh stays human-only).
+F2b wired the reply to a real **OpenAI-compatible LLM gateway** (`server/src/rooms/
+miaGateway.ts`, `node:https`, env-config in `server/.env`, scripted fallback when
+unset/on error). The gateway key is **server-side only**. Spec: `docs/specs/F2-ai-npcs.md`.
+**Next: F3** scale (SFU + TURN + video); deferred F2.x = NPC voice, multiple personas.
+
+**Gateway env (F2b):** `MIA_GATEWAY_URL/_AUTH/_MODEL/_INSECURE_TLS` in `server/.env`
+(gitignored; see `.env.example`). Current target = UAB DCC `lis-2.uab.cat` vLLM
+(`Modelo-bXs2`), **reachable only on UAB VPN** — off-VPN the NPC falls back to scripted.
 
 ## Running the dev stack
 
@@ -70,6 +81,12 @@ Two processes: `cd server && npm run dev` (Colyseus on :2567) and `cd client &&
 npm run dev` (Vite on :5173). Open two browser tabs to see presence. Authority
 model is **client-authoritative relay** (server owns room state, not movement);
 see docs/SPEC.md § "modelo de autoridad".
+
+**Gotcha — `tsx watch` silent failed-rebind:** if the server reload logs
+`EADDRINUSE: :::2567`, the OLD listener never released the port, so `tsx` is still
+serving the PREVIOUS code even though it printed "Restarting…". Don't trust that
+log — kill whatever holds :2567 and restart fresh, or you'll test stale code. (Bit
+us once validating an F2 change against the prior build.)
 
 ## Networking version lock (HARD RULE)
 

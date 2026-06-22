@@ -1,9 +1,62 @@
 # F2 — AI agents as NPCs (M.IA / Predicta citizens of the office)
 
-> Status: **draft for next session** (specify phase; not yet implemented). This is
-> the differentiator of swarm-office vs WorkAdventure: AI agents are first-class
+> Status: **F2a + F2b DONE.** The NPC is a real AI: it hears in-zone chat and replies
+> via an OpenAI-compatible LLM gateway (optional; scripted fallback when unset). This
+> is the differentiator of swarm-office vs WorkAdventure: AI agents are first-class
 > office citizens, not bolted-on. Date: 2026-06-22. Author: Albert + Claude.
 > Read this + `docs/SPEC.md` + the F0/F1 specs before implementing.
+>
+> **F2b implementation (commit `feat(npc): F2b`):** the M.IA gateway is an
+> OpenAI-compatible chat-completions endpoint (verified: UAB DCC `lis-2.uab.cat` vLLM
+> serving `Modelo-bXs2` = Qwen3.6-35B-A3B-FP8; reachable only on UAB VPN; ~0.4–3.6s).
+> - `server/src/rooms/miaGateway.ts` — thin `node:https` client (no `undici`/`fetch`
+>   dep). Config via env (`MIA_GATEWAY_URL`/`_AUTH`/`_MODEL`/`_INSECURE_TLS`, see
+>   `server/.env.example`); **server-side only**, key never reaches the client.
+>   `enable_thinking:false` (Qwen returns no reasoning), `max_tokens` + timeout caps.
+>   TLS `rejectUnauthorized:false` is **scoped to one Agent** and opt-in (the endpoint's
+>   internal cert doesn't validate hostname) — never `NODE_TLS_REJECT_UNAUTHORIZED`.
+> - `NpcController.observeChat` is now async: synchronous gates (zone, self, in-flight,
+>   cooldown) set BEFORE the await keep it race-free; it keeps a bounded history window
+>   for context; calls the gateway with a **scripted fallback on any failure** (so the
+>   NPC never goes mute) and an **in-flight guard** (cooldown 1.5s < worst latency, so
+>   one reply is composed at a time — no overlapping calls / out-of-order replies).
+> - Persona + **best-effort prompt-injection guard** in the system message (chat is
+>   untrusted; don't obey embedded instructions nor reveal the system prompt — spec §6).
+>   Tested against a basic "ignore your instructions / reveal your prompt" attempt:
+>   refused, no leak. NOT adversarially exhaustive — a system-prompt guard is weak by
+>   nature; acceptable here because the blast radius is **cosmetic**: the NPC can only
+>   emit chat text (no tools, secrets, or actions), so a successful injection just makes
+>   it say something silly, not a security incident.
+> - **Optional by design:** no gateway config → scripted replies (F2a). The repo runs
+>   out of the box and off-VPN devs still get a working NPC.
+> - Validated BOTH branches: configured → gateway-derived reply (not a scripted string;
+>   server log `[npc] gateway reply`), in-browser `M.IA: …` real LLM line; forced
+>   failure (dead URL) → fast scripted fallback (~0.5s, not a hang) + server alive
+>   (log `gateway failed → scripted fallback`). Rate limit (§7): a 5-message burst in
+>   ~0.75s produced exactly 1 gateway call (in-flight guard + cooldown). Injection: see
+>   the guard note above.
+>
+> **Deferred (F2.x):** NPC voice (TTS/STT); multiple NPCs/personas; agent-directed
+> movement (the gateway could also drive movement intent — §9). Runtime constraint:
+> the UAB gateway needs UAB VPN; document a public/Anthropic gateway option if
+> swarm-office is ever demoed off-campus.
+>
+> **F2a implementation (commits `feat(npc): F2a-1` + `F2a-2`):**
+> - `Player.isNpc` synced flag; `NpcController` spawns one NPC (`npc:mia`, "M.IA")
+>   in the lobby and wanders it via the first server simulation tick
+>   (`setSimulationInterval`). Humans stay pure relay.
+> - Client skips `VoicePeer` for NPCs (the flagged "F2 NOTE" is resolved) and marks
+>   the NPC with a floating `Text` label (no `setTint`).
+> - NPC hears in-zone chat (`NpcController.observeChat`, hooked inside
+>   `onMessage('chat')`) and replies with `scriptedReply()` — the single seam F2b
+>   replaces. Zone-scoped + 1.5s cooldown; no reply loop (reply goes via the shared
+>   `broadcastChatToZone`, never back through `onMessage`).
+> - Chat author name resolves from synced `player.name` → the NPC shows as "M.IA".
+> - Validated per §7: headless probe (1 in-zone reply, 0 cross-zone after cooldown;
+>   NPC present/flagged/wandering, single NPC) + in-browser (label renders, panel
+>   shows `M.IA: …`, `scene.peers` excludes `npc:mia`).
+> - Known minor decision: the NPC counts in the "in office: N" presence number (it
+>   IS a citizen). Filter `isNpc` from that count later if a human-only count is wanted.
 
 ## 1. Goal
 

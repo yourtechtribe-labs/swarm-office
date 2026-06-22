@@ -2,6 +2,7 @@ import { Room, type Client } from 'colyseus';
 import { OfficeState } from './schema/OfficeState';
 import { Player } from './schema/Player';
 import { ZONES, zoneAt } from './zones';
+import { NpcController, NPC_KEY } from './NpcController';
 
 /** Spawn point — matches the client world centre (WORLD_W/2, WORLD_H/2). */
 const SPAWN_X = 800;
@@ -22,20 +23,43 @@ type JoinOptions = { name?: string };
  *   onLeave()  → each time a client disconnects.
  *   onMessage()→ registered handlers fire when a client sends that message type.
  *
- * THE SERVER TICK (what happens "for free")
- * -----------------------------------------
- * We do NOT run a simulation loop here (relay model — see OfficeState). We only
- * mutate state in response to "move" messages. Colyseus runs its own patch loop
+ * THE SERVER TICK (what happens "for free", and the one exception)
+ * ----------------------------------------------------------------
+ * For HUMANS this is a pure relay: we mutate state only in response to "move"
+ * messages (relay model — see OfficeState). Colyseus runs its own patch loop
  * (~20 Hz by default): every tick it diffs the state, encodes the binary deltas,
  * and broadcasts them to all clients. That's the third "clock" of the system; our
  * job is just to keep OfficeState correct.
+ *
+ * THE ONE EXCEPTION (F2): an AI NPC has no client sending "move", so we add a
+ * single server-driven simulation tick (`setSimulationInterval` below) that lets
+ * the NpcController advance the NPC's position. It is the only state we mutate
+ * without a client message; humans stay pure relay. See NpcController for the why.
  */
 // Colyseus 0.17 typed Room: the generic is a bag of { state, metadata, client },
 // not the bare state type (that was the pre-0.17 form). We only need `state`.
 export class OfficeRoom extends Room<{ state: OfficeState }> {
+  /** Owns the AI NPC entry + its server-side wander (F2). One per room instance. */
+  private npc!: NpcController;
+
   onCreate() {
     // Install the authoritative state replica for this room.
     this.state = new OfficeState();
+
+    // F2a — spawn the AI NPC as a citizen of this room. It's a normal Player entry
+    // (isNpc=true) the NpcController owns; clients render it via the same player seam
+    // as any human remote. Spawned before any human joins so it's already present.
+    // Pass our serverLog so the NPC's events surface both in the terminal AND the
+    // in-browser log panel (bound here so the controller stays Colyseus-agnostic).
+    this.npc = new NpcController(this.state, (level, text) => this.serverLog(level, text));
+    this.npc.spawn();
+
+    // The ONE server simulation tick (see the class comment): drive the NPC's wander.
+    // Colyseus calls this every ~100 ms with the elapsed milliseconds; we hand the
+    // controller seconds (dt/1000) so its speed maths is in px/second. 100 ms (10 Hz)
+    // is plenty for a calm wander — the ~20 Hz patch loop broadcasts the changes and
+    // clients interpolate between them, so the NPC looks smooth at render rate.
+    this.setSimulationInterval((deltaMs) => this.npc.update(deltaMs / 1000), 100);
 
     // CLIENT → SERVER: a client reports its own avatar's new position. We trust
     // it (relay model) and write it into state; the patch loop broadcasts the
@@ -55,7 +79,7 @@ export class OfficeRoom extends Room<{ state: OfficeState }> {
     // to the right recipients and forget. So it lives in messages, not OfficeState;
     // the trade-off is that late joiners don't see prior lines (history/persistence
     // is deferred — would need a ring buffer in state or a DB).
-    this.onMessage('chat', (client, data: { text?: unknown }) => {
+    this.onMessage('chat', async (client, data: { text?: unknown }) => {
       // Validate on the SERVER — this is the security boundary (OWASP A03), not the
       // client. Coerce-check the type first so a malformed payload can't throw on
       // the string methods; trim before the empty-check; cap length server-side
@@ -64,20 +88,22 @@ export class OfficeRoom extends Room<{ state: OfficeState }> {
       const text = data.text.trim();
       if (!text) return;
       const capped = text.slice(0, 500);
-      // ZONE-SCOPED delivery (F1a): send only to clients in the SAME zone as the
-      // sender — the no-zone hub ('') is its own group (`'' === ''`). player.zone is
-      // computed authoritatively on join + every move (Slice 3), so we just read it.
-      // The sender always matches its own zone, so it still receives its own line
-      // (single receive→render path; the client marks its own lines via `from`).
       // `from` is the server-controlled sessionId — never a client-settable name
-      // (anti-spoof). This replaces the earlier global broadcast.
-      const senderZone = this.state.players.get(client.sessionId)?.zone ?? '';
-      for (const c of this.clients) {
-        const recipientZone = this.state.players.get(c.sessionId)?.zone ?? '';
-        if (recipientZone === senderZone) {
-          c.send('chat', { from: client.sessionId, text: capped });
-        }
-      }
+      // (anti-spoof). player.zone is computed authoritatively on join + every move.
+      const sender = this.state.players.get(client.sessionId);
+      const senderZone = sender?.zone ?? '';
+      this.broadcastChatToZone(senderZone, client.sessionId, capped);
+
+      // F2 — let the NPC HEAR this in-zone human line and maybe reply. Done here,
+      // AFTER delivering the human line and ONLY inside onMessage: the NPC's reply
+      // is sent via broadcastChatToZone (below), never through onMessage, so it
+      // cannot re-enter observeChat → no reply loop (the guarantee is structural,
+      // not a flag). observeChat is async in F2b (it may call the M.IA gateway); the
+      // synchronous gates inside it set the cooldown before awaiting, so awaiting here
+      // is race-free. The reply is stamped from: NPC_KEY and scoped to the NPC's zone
+      // (== senderZone whenever it replies, since it only hears its own zone).
+      const reply = await this.npc.observeChat(client.sessionId, sender?.name ?? '', senderZone, capped);
+      if (reply) this.broadcastChatToZone(this.npc.currentZone, NPC_KEY, reply);
     });
 
     // VOICE SIGNALING RELAY (F1b): WebRTC needs a side channel to exchange SDP
@@ -95,6 +121,43 @@ export class OfficeRoom extends Room<{ state: OfficeState }> {
       const target = this.clients.getById(data.to);
       target?.send('signal', { from: client.sessionId, data: data.data });
     });
+  }
+
+  /**
+   * Emit a server event to BOTH the terminal (console) AND every connected client
+   * (a `server-log` broadcast → the in-browser log panel). One sink so operator
+   * visibility is identical in the terminal and the UI. Transient like chat — late
+   * joiners don't see prior lines (no history kept server-side). It carries no
+   * secrets (NPC status, presence) — safe to fan out to all clients in this app.
+   */
+  private serverLog(level: 'info' | 'warn' | 'error', text: string) {
+    if (level === 'warn') console.warn(text);
+    else if (level === 'error') console.error(text);
+    else console.log(text);
+    this.broadcast('server-log', { level, text });
+  }
+
+  /**
+   * Deliver a chat line to everyone in `zone`, stamped `from` (a sessionId or the
+   * NPC key). Extracted (F2a) so the human path and the NPC's own replies share ONE
+   * delivery rule — an NPC has no WebSocket, so it cannot reuse the client's
+   * onMessage path; this is how its line reaches the right humans.
+   *
+   * ZONE-SCOPED delivery (F1a): send only to clients in the SAME zone — the no-zone
+   * hub ('') is its own group (`'' === ''`). A human sender always matches its own
+   * zone, so it still receives its own line (single receive→render path; the client
+   * marks its own lines by comparing `from` to its sessionId). `from` is always
+   * server-controlled (a sessionId or NPC_KEY), never a client-settable name
+   * (anti-spoof). NB: recipients are `this.clients` (real connections) — the NPC is
+   * not a client, so it never needs to "receive" anything.
+   */
+  private broadcastChatToZone(zone: string, from: string, text: string) {
+    for (const c of this.clients) {
+      const recipientZone = this.state.players.get(c.sessionId)?.zone ?? '';
+      if (recipientZone === zone) {
+        c.send('chat', { from, text });
+      }
+    }
   }
 
   // A new connection was accepted. Create its avatar at the spawn point and add it
@@ -115,13 +178,13 @@ export class OfficeRoom extends Room<{ state: OfficeState }> {
     // this message arrives over the wire.
     client.send('zones', ZONES);
 
-    console.log(`[office] + ${client.sessionId} joined (${this.clients.length} present)`);
+    this.serverLog('info', `➕ ${client.sessionId.slice(0, 6)} entró (${this.clients.length} presentes)`);
   }
 
   // A connection dropped. Remove its avatar → Colyseus emits "onRemove" to every
   // client (despawn the remote).
   onLeave(client: Client) {
     this.state.players.delete(client.sessionId);
-    console.log(`[office] - ${client.sessionId} left (${this.clients.length} present)`);
+    this.serverLog('info', `➖ ${client.sessionId.slice(0, 6)} salió (${this.clients.length} presentes)`);
   }
 }

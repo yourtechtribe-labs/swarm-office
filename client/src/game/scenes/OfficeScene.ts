@@ -130,6 +130,7 @@ export class OfficeScene extends Scene {
     const onChatSend = (text: string) => this.room?.send('chat', { text });
     const onChatFocus = (focused: boolean) => {
       this.chatFocused = focused;
+      const kb = this.input.keyboard!;
       // Disable Phaser's keyboard so WASD typed into the chat box doesn't move the
       // avatar; and zero velocity so a key held at the moment of focus doesn't keep
       // sliding it (disabling only stops UPDATES, not the frozen isDown state).
@@ -138,7 +139,21 @@ export class OfficeScene extends Scene {
       // settings), this last-writer-wins flag will race on focus transfer — at that
       // point generalize to an "any-reason-suspends" owner (a set of capture
       // reasons), not a second competing boolean. Not built now (premature).
-      this.input.keyboard!.enabled = !focused;
+      kb.enabled = !focused;
+      // …BUT `enabled = false` is NOT enough on its own. createCursorKeys()/addKey()
+      // registered WASD + arrows + space for GLOBAL CAPTURE, so Phaser's
+      // KeyboardManager calls preventDefault on those keycodes at the window level —
+      // and it keeps doing so even while the plugin is disabled. Net effect (the
+      // reported bug): typing a / d / w / s / space into the chat box did nothing,
+      // because those keystrokes were swallowed before they reached the <input>.
+      // Two separate capture lists exist — the per-scene plugin's and the global
+      // KeyboardManager's — and the preventDefault lives on the MANAGER, which
+      // `enabled` doesn't gate. disableGlobalCapture() lifts that preventDefault so
+      // the characters reach the box; enableGlobalCapture() restores it on blur so
+      // gameplay keys don't scroll the page. (Phaser's documented fix for "typing in
+      // an input box".)
+      if (focused) kb.disableGlobalCapture();
+      else kb.enableGlobalCapture();
       if (focused) this.player.setVelocity(0);
     };
     // VOICE JOIN (F1b): the "Join voice" gesture from React. getUserMedia here is
@@ -191,8 +206,15 @@ export class OfficeScene extends Scene {
     // it onto the bus, marking our own lines (echoed back to us) by comparing the
     // sender's sessionId to ours. React listens on the bus, never on the room.
     room.onMessage('chat', (msg: { from: string; text: string }) => {
+      // Resolve the author's display name from synced state. The server stamps `from`
+      // as a sessionId / NPC key (anti-spoof); the human-readable name lives on the
+      // Player schema (the NPC sets "M.IA"; humans are '' for now). Reading it here
+      // keeps the wire message tiny (no name duplicated per line) and works for any
+      // future human names with no further change.
+      const name = room.state.players.get(msg.from)?.name ?? '';
       EventBus.emit('chat-message', {
         from: msg.from,
+        name,
         text: msg.text,
         self: msg.from === room.sessionId,
       });
@@ -204,6 +226,13 @@ export class OfficeScene extends Scene {
     room.onMessage('signal', (msg: { from: string; data: SignalData }) => {
       this.peers.get(msg.from)?.handleSignal(msg.data);
     });
+
+    // SERVER LOG: the server broadcasts its own events (NPC gateway/fallback,
+    // join/leave) so the UI can show what's happening. Pure relay onto the bus; the
+    // React <ServerLog> panel renders them. Like chat, these are transient (no history).
+    room.onMessage('server-log', (msg: { level: 'info' | 'warn' | 'error'; text: string }) =>
+      EventBus.emit('server-log', msg),
+    );
 
     // `$` is the schema-callbacks proxy: `$(stateObject)` returns an object whose
     // collection fields expose onAdd/onRemove and whose schema fields expose
@@ -219,7 +248,9 @@ export class OfficeScene extends Scene {
       // render ourselves twice (the relay model: we never render the server's copy
       // of our own position; we own it locally for zero input lag).
       if (sessionId === room.sessionId) return;
-      const remote = new RemotePlayer(this, player.x, player.y);
+      // Mark an AI NPC with a floating name label so a human reads it as an agent.
+      // Humans pass no label (their name HUD lives elsewhere); only NPCs are tagged.
+      const remote = new RemotePlayer(this, player.x, player.y, player.isNpc ? player.name : undefined);
       this.remotes.set(sessionId, remote);
       // Each time the server updates this remote, repoint its interpolation target.
       $(player).onChange(() => remote.setTarget(player.x, player.y));
@@ -229,16 +260,22 @@ export class OfficeScene extends Scene {
       // one side of each pair is "polite", decided by lexicographic sessionId
       // compare so the two ends always disagree (which is what resolves glare).
       // Pass our mic if we've already joined voice; otherwise it's added on join.
-      // F2 NOTE: an NPC will be a state.players entry with no browser behind it, so
-      // a VoicePeer to it would never connect (a dead PeerConnection). When NPCs
-      // land, gate this on a human/NPC flag in the schema and skip them here.
-      const polite = room.sessionId > sessionId;
-      const peer = new VoicePeer(
-        polite,
-        (data) => room.send('signal', { to: sessionId, data }),
-        this.localStream ?? null,
-      );
-      this.peers.set(sessionId, peer);
+      //
+      // F2: an NPC is a state.players entry with NO browser behind it, so a VoicePeer
+      // to it would never connect (a dead PeerConnection that hangs in negotiation).
+      // We gate peer creation on the synced isNpc flag and skip NPCs — the voice mesh
+      // stays human-only. (The other two peer touch-points need no guard: onRemove's
+      // cleanup and the per-frame proximity gate both iterate `this.peers`, so an NPC
+      // with no peer entry is excluded for free.)
+      if (!player.isNpc) {
+        const polite = room.sessionId > sessionId;
+        const peer = new VoicePeer(
+          polite,
+          (data) => room.send('signal', { to: sessionId, data }),
+          this.localStream ?? null,
+        );
+        this.peers.set(sessionId, peer);
+      }
     });
 
     // A player left: despawn its avatar.

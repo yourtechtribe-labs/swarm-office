@@ -52,14 +52,23 @@ export interface SwarmEvents {
   'zone-changed': (zoneName: string) => void;
   /** React → scene: the user submitted a chat line; the scene relays it to the room. */
   'chat-send': (text: string) => void;
-  /** scene → React: a chat line arrived (self = our own message, echoed back). */
-  'chat-message': (msg: { from: string; text: string; self: boolean }) => void;
+  /**
+   * scene → React: a chat line arrived (self = our own message, echoed back).
+   * `name` is the author's display name resolved from synced state when available
+   * (e.g. the NPC "M.IA"); '' when the sender has no name yet (humans today), so the
+   * panel falls back to a short id. The raw `from` (sessionId or NPC key) stays for
+   * self-detection and as that fallback.
+   */
+  'chat-message': (msg: { from: string; name: string; text: string; self: boolean }) => void;
   /** React → scene: the chat input gained/lost focus → scene toggles game keyboard. */
   'chat-focus': (focused: boolean) => void;
   /** React → scene: user clicked "Join voice" (the gesture that unlocks mic + audio). */
   'voice-join': () => void;
   /** scene → React: voice status (joined, or an error such as denied mic). */
   'voice-state': (state: { joined: boolean; error?: string }) => void;
+  /** scene → React: a server-side event (NPC gateway/fallback, join/leave) for the
+   *  in-UI log panel. Transient, like chat — surfaces what the server is doing. */
+  'server-log': (msg: { level: 'info' | 'warn' | 'error'; text: string }) => void;
 }
 
 /** A typed view over Phaser's EventEmitter, constrained to `SwarmEvents`. */
