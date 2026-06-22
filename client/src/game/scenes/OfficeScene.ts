@@ -130,6 +130,7 @@ export class OfficeScene extends Scene {
     const onChatSend = (text: string) => this.room?.send('chat', { text });
     const onChatFocus = (focused: boolean) => {
       this.chatFocused = focused;
+      const kb = this.input.keyboard!;
       // Disable Phaser's keyboard so WASD typed into the chat box doesn't move the
       // avatar; and zero velocity so a key held at the moment of focus doesn't keep
       // sliding it (disabling only stops UPDATES, not the frozen isDown state).
@@ -138,7 +139,21 @@ export class OfficeScene extends Scene {
       // settings), this last-writer-wins flag will race on focus transfer — at that
       // point generalize to an "any-reason-suspends" owner (a set of capture
       // reasons), not a second competing boolean. Not built now (premature).
-      this.input.keyboard!.enabled = !focused;
+      kb.enabled = !focused;
+      // …BUT `enabled = false` is NOT enough on its own. createCursorKeys()/addKey()
+      // registered WASD + arrows + space for GLOBAL CAPTURE, so Phaser's
+      // KeyboardManager calls preventDefault on those keycodes at the window level —
+      // and it keeps doing so even while the plugin is disabled. Net effect (the
+      // reported bug): typing a / d / w / s / space into the chat box did nothing,
+      // because those keystrokes were swallowed before they reached the <input>.
+      // Two separate capture lists exist — the per-scene plugin's and the global
+      // KeyboardManager's — and the preventDefault lives on the MANAGER, which
+      // `enabled` doesn't gate. disableGlobalCapture() lifts that preventDefault so
+      // the characters reach the box; enableGlobalCapture() restores it on blur so
+      // gameplay keys don't scroll the page. (Phaser's documented fix for "typing in
+      // an input box".)
+      if (focused) kb.disableGlobalCapture();
+      else kb.enableGlobalCapture();
       if (focused) this.player.setVelocity(0);
     };
     // VOICE JOIN (F1b): the "Join voice" gesture from React. getUserMedia here is
