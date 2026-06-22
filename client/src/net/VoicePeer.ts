@@ -55,6 +55,9 @@ export class VoicePeer {
   // Perfect-negotiation bookkeeping (see handleSignal).
   private makingOffer = false;
   private ignoreOffer = false;
+  // Last audibility we applied, so the per-frame gate only touches the media
+  // element on an actual change (see setAudible).
+  private audible = false;
   // Declared as fields (not constructor parameter-properties): TS's
   // `erasableSyntaxOnly` (a Vite default) forbids parameter properties because
   // they emit runtime assignments rather than being pure type-erasure.
@@ -150,8 +153,15 @@ export class VoicePeer {
     }
   }
 
-  /** Distance+zone gate (called per frame by the scene): unmute only when audible. */
+  /**
+   * Distance+zone gate (called per frame by the scene): unmute only when audible.
+   * Guarded on change — the scene calls this ~60×/s but audibility flips rarely
+   * (you're near someone or not), so we avoid a redundant media-element write every
+   * frame. Same change-detection idiom as lastEmit/lastZone in OfficeScene.
+   */
   setAudible(audible: boolean): void {
+    if (audible === this.audible) return;
+    this.audible = audible;
     this.audioEl.muted = !audible;
   }
 

@@ -90,7 +90,9 @@ export class OfficeRoom extends Room<{ state: OfficeState }> {
     // as chat). No media server, no token: identity is the sessionId we control.
     this.onMessage('signal', (client, data: { to?: unknown; data?: unknown }) => {
       if (typeof data?.to !== 'string') return;
-      const target = this.clients.find((c) => c.sessionId === data.to);
+      // getById is Colyseus's built-in sessionId → Client lookup over the client
+      // list (same O(n) scan we'd write by hand, but it's the framework's named API).
+      const target = this.clients.getById(data.to);
       target?.send('signal', { from: client.sessionId, data: data.data });
     });
   }
