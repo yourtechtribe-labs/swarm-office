@@ -124,6 +124,11 @@ export class OfficeScene extends Scene {
       // Disable Phaser's keyboard so WASD typed into the chat box doesn't move the
       // avatar; and zero velocity so a key held at the moment of focus doesn't keep
       // sliding it (disabling only stops UPDATES, not the frozen isDown state).
+      // NOTE: chat is the ONLY keyboard-capturing UI today, so this absolute
+      // enable/disable is fine. If a second focusable input is added (name entry,
+      // settings), this last-writer-wins flag will race on focus transfer — at that
+      // point generalize to an "any-reason-suspends" owner (a set of capture
+      // reasons), not a second competing boolean. Not built now (premature).
       this.input.keyboard!.enabled = !focused;
       if (focused) this.player.setVelocity(0);
     };
@@ -210,11 +215,7 @@ export class OfficeScene extends Scene {
     // movement, so without this one-shot a stationary player who spawned inside a
     // zone would show no zone until they first move. Compute it once now that the
     // geometry exists.
-    const zoneName = this.localZoneName(this.player.x, this.player.y);
-    if (zoneName !== this.lastZone) {
-      this.lastZone = zoneName;
-      EventBus.emit('zone-changed', zoneName);
-    }
+    this.setLocalZone(this.player.x, this.player.y);
   }
 
   /**
@@ -227,6 +228,20 @@ export class OfficeScene extends Scene {
       if (x >= z.x && x < z.x + z.w && y >= z.y && y < z.y + z.h) return z.name;
     }
     return '';
+  }
+
+  /**
+   * Compute the local player's zone for (x,y) and emit 'zone-changed' only on an
+   * actual enter/leave. Shared by the two triggers of a zone change: the player
+   * moving (update) and the zone geometry arriving (renderZones) — keeping the
+   * change-detection in one place so the emit contract can't drift between them.
+   */
+  private setLocalZone(x: number, y: number) {
+    const zoneName = this.localZoneName(x, y);
+    if (zoneName !== this.lastZone) {
+      this.lastZone = zoneName;
+      EventBus.emit('zone-changed', zoneName);
+    }
   }
 
   update() {
@@ -288,12 +303,8 @@ export class OfficeScene extends Scene {
       // re-running the point-in-rect scan ~60×/s on idle frames (the common case
       // in a presence app). Lag-free HUD (relay philosophy: our own derived state
       // is instant); REMOTES' zones come from the synced schema (player.zone) the
-      // server computes. Emit only on actual enter/leave.
-      const zoneName = this.localZoneName(x, y);
-      if (zoneName !== this.lastZone) {
-        this.lastZone = zoneName;
-        EventBus.emit('zone-changed', zoneName);
-      }
+      // server computes. Emit only on actual enter/leave (handled in setLocalZone).
+      this.setLocalZone(x, y);
     }
 
     // 6) INTERPOLATE REMOTES every frame: ease each remote avatar toward its last
