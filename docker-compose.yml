@@ -1,0 +1,34 @@
+# swarm-office — local dev stack (STUB, not yet wired)
+# F0 services: Colyseus server + Postgres. Client runs via Vite dev server (client/).
+# LiveKit (F1) and reverse proxy/TLS (deploy) are added in later phases.
+#
+# This is a placeholder so the topology is explicit; services are commented until F0 lands.
+
+version: "3.9"
+
+services:
+  # --- F0 ---
+  # server:                      # Colyseus authoritative game server
+  #   build: ./server
+  #   ports: ["2567:2567"]
+  #   environment:
+  #     DATABASE_URL: postgres://swarm:swarm@db:5432/swarm
+  #   depends_on: [db]
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: swarm
+      POSTGRES_PASSWORD: swarm
+      POSTGRES_DB: swarm
+    ports: ["5432:5432"]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  # --- F1 (later) ---
+  # livekit:                     # proximity voice/video
+  #   image: livekit/livekit-server
+  #   ...
+
+volumes:
+  pgdata:
