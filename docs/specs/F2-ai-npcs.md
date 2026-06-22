@@ -1,9 +1,27 @@
 # F2 — AI agents as NPCs (M.IA / Predicta citizens of the office)
 
-> Status: **draft for next session** (specify phase; not yet implemented). This is
-> the differentiator of swarm-office vs WorkAdventure: AI agents are first-class
-> office citizens, not bolted-on. Date: 2026-06-22. Author: Albert + Claude.
+> Status: **F2a DONE** (scripted NPC — all plumbing, zero external deps). **F2b
+> (wire to the M.IA gateway) is next.** This is the differentiator of swarm-office
+> vs WorkAdventure: AI agents are first-class office citizens, not bolted-on.
+> Date: 2026-06-22. Author: Albert + Claude.
 > Read this + `docs/SPEC.md` + the F0/F1 specs before implementing.
+>
+> **F2a implementation (commits `feat(npc): F2a-1` + `F2a-2`):**
+> - `Player.isNpc` synced flag; `NpcController` spawns one NPC (`npc:mia`, "M.IA")
+>   in the lobby and wanders it via the first server simulation tick
+>   (`setSimulationInterval`). Humans stay pure relay.
+> - Client skips `VoicePeer` for NPCs (the flagged "F2 NOTE" is resolved) and marks
+>   the NPC with a floating `Text` label (no `setTint`).
+> - NPC hears in-zone chat (`NpcController.observeChat`, hooked inside
+>   `onMessage('chat')`) and replies with `scriptedReply()` — the single seam F2b
+>   replaces. Zone-scoped + 1.5s cooldown; no reply loop (reply goes via the shared
+>   `broadcastChatToZone`, never back through `onMessage`).
+> - Chat author name resolves from synced `player.name` → the NPC shows as "M.IA".
+> - Validated per §7: headless probe (1 in-zone reply, 0 cross-zone after cooldown;
+>   NPC present/flagged/wandering, single NPC) + in-browser (label renders, panel
+>   shows `M.IA: …`, `scene.peers` excludes `npc:mia`).
+> - Known minor decision: the NPC counts in the "in office: N" presence number (it
+>   IS a citizen). Filter `isNpc` from that count later if a human-only count is wanted.
 
 ## 1. Goal
 

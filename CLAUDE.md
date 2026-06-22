@@ -61,8 +61,14 @@ input validation (done). **F0 complete.**
 **F1 — proximity comms (done):** F1a zone-scoped text chat (filter broadcast by
 player.zone) + F1b distance-gated voice (WebRTC **P2P mesh**, audio-only, ≤5, no
 LiveKit; signaling over Colyseus, perfect negotiation; connections follow presence,
-audio follows distance). Spec: `docs/specs/F1-proximity-comms.md`. Next: F2 AI NPCs
-(M.IA gateway), F3 scale (SFU + TURN + video).
+audio follows distance). Spec: `docs/specs/F1-proximity-comms.md`.
+
+**F2 — AI NPCs:** F2a **done** — a scripted NPC ("M.IA") is a normal `players` entry
+(`isNpc=true`) the server spawns + wanders via the first simulation tick; it hears
+in-zone chat and replies (scripted), shown with a name label; NPCs get NO VoicePeer
+(voice mesh stays human-only). Spec: `docs/specs/F2-ai-npcs.md`. **Next: F2b** — swap
+`NpcController.scriptedReply()` for the real M.IA gateway (explore its API first —
+spec §5). Then F3 scale (SFU + TURN + video).
 
 ## Running the dev stack
 
