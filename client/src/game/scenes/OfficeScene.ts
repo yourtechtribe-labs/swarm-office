@@ -169,6 +169,17 @@ export class OfficeScene extends Scene {
         .text(z.x + 10, z.y + 8, z.name, { fontSize: '20px', color: '#e6edf3' })
         .setDepth(2);
     }
+
+    // Zones arrive asynchronously, possibly AFTER the player has spawned and is
+    // standing still. The per-frame zone check (update step 5) only runs on
+    // movement, so without this one-shot a stationary player who spawned inside a
+    // zone would show no zone until they first move. Compute it once now that the
+    // geometry exists.
+    const zoneName = this.localZoneName(this.player.x, this.player.y);
+    if (zoneName !== this.lastZone) {
+      this.lastZone = zoneName;
+      EventBus.emit('zone-changed', zoneName);
+    }
   }
 
   /**
@@ -230,16 +241,19 @@ export class OfficeScene extends Scene {
       // Reusing the same change-throttle means we only send on movement — no
       // 60×/s spam of identical positions. `?.` because the join is async.
       this.room?.send('move', { x, y });
-    }
 
-    // 5) LOCAL ZONE (instant, client-side): which zone is our own avatar in? We
-    // compute it locally for a lag-free HUD — relay philosophy: our own derived
-    // state is instant, while REMOTES' zones come from the synced schema
-    // (player.zone) the server computes. Emit only on change (enter/leave).
-    const zoneName = this.localZoneName(x, y);
-    if (zoneName !== this.lastZone) {
-      this.lastZone = zoneName;
-      EventBus.emit('zone-changed', zoneName);
+      // 5) LOCAL ZONE (instant, client-side): which zone is our own avatar in?
+      // Computed INSIDE the position-changed guard: zone membership is a pure
+      // function of (x,y), so while standing still it cannot change — no point
+      // re-running the point-in-rect scan ~60×/s on idle frames (the common case
+      // in a presence app). Lag-free HUD (relay philosophy: our own derived state
+      // is instant); REMOTES' zones come from the synced schema (player.zone) the
+      // server computes. Emit only on actual enter/leave.
+      const zoneName = this.localZoneName(x, y);
+      if (zoneName !== this.lastZone) {
+        this.lastZone = zoneName;
+        EventBus.emit('zone-changed', zoneName);
+      }
     }
 
     // 6) INTERPOLATE REMOTES every frame: ease each remote avatar toward its last
