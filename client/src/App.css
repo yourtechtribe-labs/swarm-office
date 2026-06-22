@@ -1,0 +1,50 @@
+.app {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+}
+
+#game-container {
+  width: 100vw;
+  height: 100vh;
+}
+
+#game-container canvas {
+  display: block;
+}
+
+.hud {
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: rgba(13, 20, 28, 0.72);
+  color: #e6edf3;
+  font:
+    13px/1.4 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
+  pointer-events: none;
+  user-select: none;
+  backdrop-filter: blur(4px);
+}
+
+.hud__title {
+  font-size: 15px;
+  letter-spacing: 0.5px;
+  color: #4fd1c5;
+}
+
+.hud__line {
+  opacity: 0.9;
+}
+
+.hud__hint {
+  margin-top: 4px;
+  opacity: 0.55;
+}
