@@ -53,4 +53,20 @@ and makes it explicit for code-quality passes that would otherwise trim comments
 
 F0 (walk + presence + zones + text chat) is being built in **vertical slices**:
 Slice 1 = client scaffold + local player movement (done). Slice 2 = Colyseus
-server + presence. F1 voice (LiveKit), F2 AI NPCs (M.IA gateway), F3 scale.
+server + presence, remotes interpolated (done). Slice 3 = zones. Slice 4 = text
+chat. F1 voice (LiveKit), F2 AI NPCs (M.IA gateway), F3 scale.
+
+## Running the dev stack
+
+Two processes: `cd server && npm run dev` (Colyseus on :2567) and `cd client &&
+npm run dev` (Vite on :5173). Open two browser tabs to see presence. Authority
+model is **client-authoritative relay** (server owns room state, not movement);
+see docs/SPEC.md § "modelo de autoridad".
+
+## Networking version lock (HARD RULE)
+
+server `colyseus` and client `@colyseus/sdk` MUST stay on the same 0.17.x line —
+the Schema binary wire protocol is version-locked, so a mismatch deserializes
+silently wrong (fields arrive `undefined`), not with a clean error. The decorated
+schema (`@type`) lives ONLY on the server; the client types remote players
+structurally (`PlayerView`) to avoid the decorator tsconfig fighting the Vite build.

@@ -1,5 +1,7 @@
 import { Scene, Physics, Input, type Types } from 'phaser';
 import { EventBus } from '../EventBus';
+import { connectToOffice, getStateCallbacks, type OfficeRoom, type PlayerView } from '../../net/room';
+import { RemotePlayer } from '../RemotePlayer';
 
 /** World size in pixels. The camera shows a window onto this larger world. */
 const WORLD_W = 1600;
@@ -34,6 +36,10 @@ export class OfficeScene extends Scene {
   private wasd!: DirKeys;
   /** Last position we emitted, so we only notify React on actual change. */
   private lastEmit = { x: -1, y: -1 };
+  /** The Colyseus room, once joined (async; undefined until connected). */
+  private room?: OfficeRoom;
+  /** Remote avatars, keyed by their server sessionId. */
+  private readonly remotes = new Map<string, RemotePlayer>();
 
   constructor() {
     super('OfficeScene');
@@ -79,6 +85,48 @@ export class OfficeScene extends Scene {
 
     // Tell any React listeners the scene is live and safe to drive/inspect.
     EventBus.emit('current-scene-ready', this);
+
+    // NETWORKING: join the shared office. Connection is async and create() is not,
+    // so we connect in the background and wire callbacks once joined. If the server
+    // is down the catch logs it and local play still works (graceful degradation).
+    connectToOffice()
+      .then((room) => this.onConnected(room))
+      .catch((err) => console.error('[net] could not join office:', err));
+  }
+
+  /**
+   * Wire the room's state callbacks once we've joined. This is where the "player
+   * seam" pays off: the server's players map drives spawn/despawn of RemotePlayer
+   * instances, while our own avatar stays the local Arcade sprite.
+   */
+  private onConnected(room: OfficeRoom) {
+    this.room = room;
+    // `$` is the schema-callbacks proxy: `$(stateObject)` returns an object whose
+    // collection fields expose onAdd/onRemove and whose schema fields expose
+    // listen/onChange. This is the Colyseus 0.17 / Schema v4 callbacks API.
+    const $ = getStateCallbacks(room);
+
+    const emitPresence = () => EventBus.emit('presence-changed', room.state.players.size);
+
+    // A player was added to the room state.
+    $(room.state).players.onAdd((player: PlayerView, sessionId: string) => {
+      emitPresence();
+      // Our own avatar is already the local Arcade sprite — skip it so we don't
+      // render ourselves twice (the relay model: we never render the server's copy
+      // of our own position; we own it locally for zero input lag).
+      if (sessionId === room.sessionId) return;
+      const remote = new RemotePlayer(this, player.x, player.y);
+      this.remotes.set(sessionId, remote);
+      // Each time the server updates this remote, repoint its interpolation target.
+      $(player).onChange(() => remote.setTarget(player.x, player.y));
+    });
+
+    // A player left: despawn its avatar.
+    $(room.state).players.onRemove((_player: PlayerView, sessionId: string) => {
+      this.remotes.get(sessionId)?.destroy();
+      this.remotes.delete(sessionId);
+      emitPresence();
+    });
   }
 
   update() {
@@ -124,6 +172,18 @@ export class OfficeScene extends Scene {
       this.lastEmit.x = x;
       this.lastEmit.y = y;
       EventBus.emit('player-moved', { x, y });
+      // Push our authoritative-for-ourselves position to the server (relay model).
+      // Reusing the same change-throttle means we only send on movement — no
+      // 60×/s spam of identical positions. `?.` because the join is async.
+      this.room?.send('move', { x, y });
+    }
+
+    // 5) INTERPOLATE REMOTES every frame: ease each remote avatar toward its last
+    // server-reported position. Runs unconditionally (not throttled) because the
+    // smoothing must happen on frames where no new server update arrived — that's
+    // the whole point of bridging the ~20Hz server tick to ~60Hz rendering.
+    for (const remote of this.remotes.values()) {
+      remote.interpolate();
     }
   }
 }

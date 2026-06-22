@@ -1,0 +1,24 @@
+{
+  "name": "swarm-office-server",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "comment": "Deps PINNED to exact versions (supply-chain hardening; see repo CLAUDE.md). server `colyseus` and client `@colyseus/sdk` MUST stay on the same 0.17.x line — the Schema binary wire protocol is version-locked, so a mismatch causes SILENT deserialization (fields arrive undefined), not a clean error. Install with `npm ci`.",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@colyseus/schema": "4.0.26",
+    "@colyseus/tools": "0.17.19",
+    "colyseus": "0.17.10",
+    "cors": "2.8.6"
+  },
+  "devDependencies": {
+    "@types/cors": "2.8.19",
+    "@types/express": "5.0.6",
+    "@types/node": "24.13.2",
+    "tsx": "4.22.4",
+    "typescript": "6.0.3"
+  }
+}

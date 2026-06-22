@@ -11,6 +11,7 @@
   },
   "comment": "Dependencies are PINNED to exact versions (no ^/~) as a supply-chain hardening measure for a production app (post-axios March 2026 guidance). The committed package-lock.json pins the full transitive tree; always install with `npm ci`. Bump versions deliberately (ideally via a reviewed Dependabot/Renovate PR) + run `npm audit`.",
   "dependencies": {
+    "@colyseus/sdk": "0.17.43",
     "phaser": "4.2.0",
     "react": "19.2.7",
     "react-dom": "19.2.7"

@@ -46,6 +46,8 @@ export interface SwarmEvents {
   'current-scene-ready': (scene: Phaser.Scene) => void;
   /** Fired when the local player's rounded position changes (throttled). */
   'player-moved': (pos: { x: number; y: number }) => void;
+  /** Fired when someone joins/leaves the room — total avatars present (incl. you). */
+  'presence-changed': (count: number) => void;
 }
 
 /** A typed view over Phaser's EventEmitter, constrained to `SwarmEvents`. */

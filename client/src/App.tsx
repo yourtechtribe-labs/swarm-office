@@ -22,15 +22,19 @@ function App() {
   // Handle to the game instance (exposed by PhaserGame). Not load-bearing yet.
   const phaserRef = useRef<PhaserGameRef>(null);
   const [pos, setPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [present, setPresent] = useState(0);
 
   useEffect(() => {
-    // Subscribe to the typed bus. The payload type is inferred from SwarmEvents.
+    // Subscribe to the typed bus. Payload types are inferred from SwarmEvents.
     const onMove = (p: { x: number; y: number }) => setPos(p);
+    const onPresence = (count: number) => setPresent(count);
     EventBus.on('player-moved', onMove);
+    EventBus.on('presence-changed', onPresence);
     // Cleanup is REQUIRED: without off(), StrictMode's double-mount (and any
     // future remount) would stack duplicate listeners → leak + multiple setState.
     return () => {
       EventBus.off('player-moved', onMove);
+      EventBus.off('presence-changed', onPresence);
     };
   }, []);
 
@@ -39,10 +43,11 @@ function App() {
       <PhaserGame ref={phaserRef} />
       <div className="hud">
         <strong className="hud__title">swarm-office</strong>
-        <span className="hud__line">F0 · local player</span>
+        <span className="hud__line">F0 · presence</span>
         <span className="hud__line">
           x:{pos.x} y:{pos.y}
         </span>
+        <span className="hud__line">in office: {present}</span>
         <span className="hud__hint">WASD / arrows to move</span>
       </div>
     </div>

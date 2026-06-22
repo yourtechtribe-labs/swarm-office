@@ -29,7 +29,7 @@ both — team presence **and** AI teammates in one pixel world.
 
 ## Roadmap
 
-- **F0** — walk + presence + zones + text chat _(current)_
+- **F0** — walk + presence + zones + text chat _(current — local movement + Colyseus presence done)_
 - **F1** — voice/video proximity (LiveKit)
 - **F2** — AI agents as NPCs (M.IA gateway)
 - **F3** — scale: interest management (AOI), Tiled map editor, OIDC/members

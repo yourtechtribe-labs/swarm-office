@@ -1,0 +1,24 @@
+{
+  // Server-only tsconfig. The Colyseus Schema @type decorators REQUIRE the two
+  // legacy-decorator flags below; this is exactly why the decorated schema lives
+  // ONLY on the server and is never imported into the client's Vite build (whose
+  // tsconfig.app.json uses modern class-field semantics that would break @type).
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+
+    // --- the @colyseus/schema decorator gotcha ---
+    "experimentalDecorators": true,   // enables the `@type(...)` property decorator
+    "useDefineForClassFields": false, // decorators must observe the assigned value,
+                                      // not have it shadowed by a define semantics
+
+    "outDir": "dist",
+    "rootDir": "src"
+  },
+  "include": ["src"]
+}

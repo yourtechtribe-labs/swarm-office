@@ -51,6 +51,17 @@ custom, tint, FX/masks, Shader API, lighting y clases retiradas (`Point`/`Mesh`/
 **nada de lo cual usamos**. El bump v3.90→4.2 pasó build + runtime (WebGL) **sin tocar código**.
 Se eligió migrar ahora, con la superficie mínima (1 slice), para no acumular deuda.
 
+### Nota — modelo de autoridad (Slice 2, 2026-06-22)
+Colyseus es autoritativo sobre el **estado de la sala** (quién está presente, las
+posiciones canónicas en `OfficeState.players`), pero **no simula el movimiento**:
+cada cliente calcula la posición de su propio avatar localmente (física Arcade,
+respuesta instantánea) y la *empuja* con `room.send("move")`; el servidor la guarda
+y Colyseus difunde el delta binario (~20Hz). Los avatares remotos se **interpolan**
+en el cliente (lerp-to-latest) para suavizar el salto entre el tick del servidor y
+los 60fps de render. Es el patrón "presence relay" estándar (Gather/WorkAdventure).
+La **autoridad total** (cliente manda input → servidor simula → cliente reconcilia,
+necesaria para anti-cheat) se difiere a F3.
+
 ### Notas de rendimiento (para no malgastar esfuerzo)
 - El cuello de botella NO es el render (Phaser = GPU), sino **la red al escalar**.
 - Optimización por orden de ROI: **arquitectura** (AOI/interest management, protocolo binario+delta,
@@ -61,6 +72,9 @@ Se eligió migrar ahora, con la superficie mínima (1 slice), para no acumular d
 
 - **F0 — MVP (en curso, multi-sesión)**: cliente Phaser + servidor Colyseus + Postgres. Walk,
   presencia de jugadores, zonas, chat de texto. Correr **en local** primero.
+  Por slices verticales: Slice 1 = scaffold cliente + player local (hecho); Slice 2 =
+  servidor Colyseus + presencia (remotos interpolados) (hecho); Slice 3 = zonas;
+  Slice 4 = chat de texto. (Postgres se añade cuando haya estado que persistir.)
 - **F1 — Voz/vídeo**: LiveKit proximidad + coturn.
 - **F2 — Agentes IA como NPCs**: hook al gateway M.IA; un agente Predicta aparece y conversa.
 - **F3 — Escala y producto**: interest management (AOI), editor de mapas Tiled, OIDC/members area.
