@@ -35,13 +35,21 @@ referencia de la experiencia de voz-proximidad (no de código).
 
 | Capa | Tecnología | Por qué |
 |------|-----------|---------|
-| Render cliente | **Phaser 3** (WebGL) | Motor 2D estándar sobre GPU; pixel-art trivial a 60fps. Rust/C no batirían a la GPU aquí |
+| Render cliente | **Phaser 4** (WebGL) | Motor 2D estándar sobre GPU; pixel-art trivial a 60fps. Rust/C no batirían a la GPU aquí. Migrado de Phaser 3.90 → 4.2 el 2026-06-22 (v4 estable abr-2026; usamos solo APIs estándar → migración sin cambios de código; ESM modular). Ver nota abajo |
 | Shell UI | **Vite + React** | SPA ligera (Next solo si luego se quiere landing/SSR) |
 | Multiplayer | **Colyseus** | Servidor autoritativo con rooms + **sync de estado por schema (binario, delta)** + base para interest management. Mejora el punto débil de DeskRPG (Socket.IO crudo) |
 | Voz/vídeo (F1) | **LiveKit** (self-host) | Audio/vídeo por proximidad open-source. (Coturn/TURN para NAT) |
 | Persistencia | **Postgres + Drizzle** | Mapas, usuarios, layouts |
 | Mapas | **Tiled** | Editor de tilemaps estándar |
 | Agentes NPC (F2) | hook al **gateway M.IA** | Agentes como NPCs con los que el equipo habla |
+
+### Nota — migración Phaser 3 → 4 (2026-06-22)
+La spec original fijaba Phaser 3. Tras `/improve` se revisó Phaser 4 (estable abr-2026,
+[migration guide](https://github.com/phaserjs/phaser/blob/master/changelog/v4/4.0/MIGRATION-GUIDE.md)):
+mantiene casi toda la API pública de v3; los breaking changes están solo en renderer
+custom, tint, FX/masks, Shader API, lighting y clases retiradas (`Point`/`Mesh`/`BitmapMask`),
+**nada de lo cual usamos**. El bump v3.90→4.2 pasó build + runtime (WebGL) **sin tocar código**.
+Se eligió migrar ahora, con la superficie mínima (1 slice), para no acumular deuda.
 
 ### Notas de rendimiento (para no malgastar esfuerzo)
 - El cuello de botella NO es el render (Phaser = GPU), sino **la red al escalar**.

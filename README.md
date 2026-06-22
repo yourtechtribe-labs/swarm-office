@@ -20,7 +20,7 @@ both — team presence **and** AI teammates in one pixel world.
 
 | Layer | Tech | Why |
 |-------|------|-----|
-| Client render | **Phaser 3** (WebGL) + **Vite + React** shell | 2D engine on GPU; lightweight SPA shell |
+| Client render | **Phaser 4** (WebGL) + **Vite + React** shell | 2D engine on GPU; lightweight SPA shell |
 | Multiplayer | **Colyseus** (authoritative, schema state-sync) | rooms + delta-sync + interest management out of the box |
 | Voice/video (F1) | **LiveKit** (self-host) | open-source proximity audio/video |
 | Persistence | **Postgres** + Drizzle | maps, users, layouts |
