@@ -101,9 +101,12 @@ export class OfficeScene extends Scene {
 
     // 3) NORMALIZE DIAGONALS: pressing right+down gives velocity (220,220) whose
     // magnitude is 220·√2 ≈ 311 → ~41% faster diagonally. setLength rescales the
-    // vector back to exactly SPEED while preserving direction.
+    // vector back to exactly SPEED while preserving direction. Guard on BOTH axes
+    // (&&), not either (||): single-axis velocity is already exactly SPEED, so
+    // rescaling it would be a redundant sqrt+rescale every frame in the common
+    // straight-line case. Only true diagonals have the wrong magnitude.
     const body = this.player.body as Physics.Arcade.Body;
-    if (body.velocity.x !== 0 || body.velocity.y !== 0) {
+    if (body.velocity.x !== 0 && body.velocity.y !== 0) {
       body.velocity.setLength(SPEED);
     }
 
@@ -113,7 +116,13 @@ export class OfficeScene extends Scene {
     const x = Math.round(this.player.x);
     const y = Math.round(this.player.y);
     if (x !== this.lastEmit.x || y !== this.lastEmit.y) {
-      this.lastEmit = { x, y };
+      // Mutate lastEmit IN PLACE — it never leaves this scene, so reusing the
+      // object avoids ~60 short-lived allocations/sec (GC pressure) while moving.
+      // The emit payload below, by contrast, MUST be a fresh object: it escapes
+      // into React state via setPos, where reusing a reference would defeat
+      // React's change detection.
+      this.lastEmit.x = x;
+      this.lastEmit.y = y;
       EventBus.emit('player-moved', { x, y });
     }
   }
