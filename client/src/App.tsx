@@ -23,18 +23,22 @@ function App() {
   const phaserRef = useRef<PhaserGameRef>(null);
   const [pos, setPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [present, setPresent] = useState(0);
+  const [zone, setZone] = useState('');
 
   useEffect(() => {
     // Subscribe to the typed bus. Payload types are inferred from SwarmEvents.
     const onMove = (p: { x: number; y: number }) => setPos(p);
     const onPresence = (count: number) => setPresent(count);
+    const onZone = (zoneName: string) => setZone(zoneName);
     EventBus.on('player-moved', onMove);
     EventBus.on('presence-changed', onPresence);
+    EventBus.on('zone-changed', onZone);
     // Cleanup is REQUIRED: without off(), StrictMode's double-mount (and any
     // future remount) would stack duplicate listeners → leak + multiple setState.
     return () => {
       EventBus.off('player-moved', onMove);
       EventBus.off('presence-changed', onPresence);
+      EventBus.off('zone-changed', onZone);
     };
   }, []);
 
@@ -48,6 +52,7 @@ function App() {
           x:{pos.x} y:{pos.y}
         </span>
         <span className="hud__line">in office: {present}</span>
+        <span className="hud__line">zone: {zone || '—'}</span>
         <span className="hud__hint">WASD / arrows to move</span>
       </div>
     </div>

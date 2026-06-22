@@ -34,4 +34,10 @@ export class Player extends Schema {
   @type('number') y = 0;
   /** Display name (empty until the chat/name slice; reserved now). */
   @type('string') name = '';
+  /**
+   * Id of the zone the player is currently inside ('' = none). Computed by the
+   * SERVER from (x,y) on join and on every move, so it's part of the shared state
+   * every client sees — the foundation for F1 proximity grouping.
+   */
+  @type('string') zone = '';
 }

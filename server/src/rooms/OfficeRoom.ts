@@ -1,6 +1,7 @@
 import { Room, type Client } from 'colyseus';
 import { OfficeState } from './schema/OfficeState';
 import { Player } from './schema/Player';
+import { ZONES, zoneAt } from './zones';
 
 /** Spawn point — matches the client world centre (WORLD_W/2, WORLD_H/2). */
 const SPAWN_X = 800;
@@ -45,6 +46,8 @@ export class OfficeRoom extends Room<{ state: OfficeState }> {
       if (!player) return; // message arrived before/after the player existed
       player.x = data.x;
       player.y = data.y;
+      // Derive zone membership from the new position and sync it (delta-broadcast).
+      player.zone = zoneAt(data.x, data.y);
     });
   }
 
@@ -55,7 +58,17 @@ export class OfficeRoom extends Room<{ state: OfficeState }> {
     player.x = SPAWN_X;
     player.y = SPAWN_Y;
     player.name = options?.name ?? '';
+    // Compute the spawn zone now (not only on move) — a player who joins inside a
+    // zone and never moves must still report it. The spawn is inside "lobby".
+    player.zone = zoneAt(SPAWN_X, SPAWN_Y);
     this.state.players.set(client.sessionId, player);
+
+    // Push the static zone geometry to this client so it can draw the areas. We
+    // send it here on join (single source of truth on the server). The client
+    // registers its "zones" handler synchronously on join, so it's ready before
+    // this message arrives over the wire.
+    client.send('zones', ZONES);
+
     console.log(`[office] + ${client.sessionId} joined (${this.clients.length} present)`);
   }
 

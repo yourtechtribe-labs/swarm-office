@@ -73,7 +73,8 @@ necesaria para anti-cheat) se difiere a F3.
 - **F0 — MVP (en curso, multi-sesión)**: cliente Phaser + servidor Colyseus + Postgres. Walk,
   presencia de jugadores, zonas, chat de texto. Correr **en local** primero.
   Por slices verticales: Slice 1 = scaffold cliente + player local (hecho); Slice 2 =
-  servidor Colyseus + presencia (remotos interpolados) (hecho); Slice 3 = zonas;
+  servidor Colyseus + presencia (remotos interpolados) (hecho); Slice 3 = zonas
+  (servidor posee la pertenencia vía `player.zone`, cliente dibuja las áreas) (hecho);
   Slice 4 = chat de texto. (Postgres se añade cuando haya estado que persistir.)
 - **F1 — Voz/vídeo**: LiveKit proximidad + coturn.
 - **F2 — Agentes IA como NPCs**: hook al gateway M.IA; un agente Predicta aparece y conversa.

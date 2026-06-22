@@ -53,8 +53,9 @@ and makes it explicit for code-quality passes that would otherwise trim comments
 
 F0 (walk + presence + zones + text chat) is being built in **vertical slices**:
 Slice 1 = client scaffold + local player movement (done). Slice 2 = Colyseus
-server + presence, remotes interpolated (done). Slice 3 = zones. Slice 4 = text
-chat. F1 voice (LiveKit), F2 AI NPCs (M.IA gateway), F3 scale.
+server + presence, remotes interpolated (done). Slice 3 = zones — server owns
+membership (player.zone), client renders areas + shows local zone (done). Slice 4
+= text chat. F1 voice (LiveKit), F2 AI NPCs (M.IA gateway), F3 scale.
 
 ## Running the dev stack
 

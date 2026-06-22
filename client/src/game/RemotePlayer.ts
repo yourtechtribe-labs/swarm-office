@@ -38,6 +38,10 @@ export class RemotePlayer {
     // (We avoid setTint on purpose — the tint API is one of Phaser 4's breaking
     // changes; alpha is unchanged and enough here.)
     this.sprite.setAlpha(0.8);
+    // Depth 10 = the avatar layer, above the zone overlays (depth 1). Zones are
+    // added asynchronously (after this sprite), so without explicit depth they'd
+    // paint over remote avatars.
+    this.sprite.setDepth(10);
     this.targetX = x;
     this.targetY = y;
   }

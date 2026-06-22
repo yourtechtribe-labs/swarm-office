@@ -1,6 +1,12 @@
 import { Scene, Physics, Input, type Types } from 'phaser';
 import { EventBus } from '../EventBus';
-import { connectToOffice, getStateCallbacks, type OfficeRoom, type PlayerView } from '../../net/room';
+import {
+  connectToOffice,
+  getStateCallbacks,
+  type OfficeRoom,
+  type PlayerView,
+  type ZoneView,
+} from '../../net/room';
 import { RemotePlayer } from '../RemotePlayer';
 
 /** World size in pixels. The camera shows a window onto this larger world. */
@@ -16,10 +22,16 @@ type DirKeys = Record<'up' | 'down' | 'left' | 'right', Input.Keyboard.Key>;
  *  OfficeScene — the playable office (F0 / Slice 1)
  * ═══════════════════════════════════════════════════════════════════════════
  *
- * Scope: a tiled floor, the local player, WASD/arrow movement bounded to the
- * world, and a camera that follows. NO networking yet — that is Slice 2
- * (Colyseus presence), where a SERVER becomes the authority and this scene will
- * also render *remote* players interpolated between server snapshots.
+ * Scope (F0, slices 1–3): a tiled floor, the local player (WASD/arrow movement,
+ * camera follow), networked PRESENCE (remote players interpolated from the Colyseus
+ * server), and ZONES (named areas; the server owns membership via player.zone, the
+ * client draws the rectangles the server pushes and shows the local player's zone).
+ *
+ * RENDER LAYERS (depth)
+ * ---------------------
+ * Zones arrive asynchronously (after the player sprite is created), so without
+ * explicit depths they'd paint OVER the avatars. We pin three layers:
+ *   floor = 0  <  zones = 1 (labels 2)  <  avatars = 10.
  *
  * Per frame, Phaser runs this scene in two distinct phases:
  *   1. systems step  → Arcade World integrates bodies (position += velocity·dt).
@@ -40,6 +52,10 @@ export class OfficeScene extends Scene {
   private room?: OfficeRoom;
   /** Remote avatars, keyed by their server sessionId. */
   private readonly remotes = new Map<string, RemotePlayer>();
+  /** Zone geometry pushed by the server (for rendering + local membership tests). */
+  private zones: ZoneView[] = [];
+  /** Last local zone name we emitted, so we notify React only on change. */
+  private lastZone = '';
 
   constructor() {
     super('OfficeScene');
@@ -50,7 +66,7 @@ export class OfficeScene extends Scene {
     // single quad, not ~1875 sprites: the GPU sampler's REPEAT wrap mode tiles the
     // texture across UVs that run 0→50 (1600/32). One draw call for the whole
     // floor. setOrigin(0,0) anchors its top-left at world (0,0) (default is center).
-    this.add.tileSprite(0, 0, WORLD_W, WORLD_H, 'floor').setOrigin(0, 0);
+    this.add.tileSprite(0, 0, WORLD_W, WORLD_H, 'floor').setOrigin(0, 0).setDepth(0);
 
     // The physics world's bounds; bodies with collideWorldBounds clamp to these.
     this.physics.world.setBounds(0, 0, WORLD_W, WORLD_H);
@@ -62,6 +78,7 @@ export class OfficeScene extends Scene {
     this.player = this.physics.add.sprite(WORLD_W / 2, WORLD_H / 2, 'player');
     this.player.setScale(2);
     this.player.setCollideWorldBounds(true);
+    this.player.setDepth(10); // avatar layer, above the zone overlays
 
     // CAMERA: a window onto the world. setBounds stops it from showing empty space
     // past the world edges. startFollow(target, roundPixels, lerpX, lerpY) eases
@@ -101,6 +118,13 @@ export class OfficeScene extends Scene {
    */
   private onConnected(room: OfficeRoom) {
     this.room = room;
+
+    // Register the "zones" handler FIRST — synchronously, before any awaited work.
+    // The server pushes the zone geometry in onJoin; registering the handler in the
+    // same call stack as the join-resolve wins the race against that in-flight
+    // message (the message is still travelling over the wire while this runs).
+    room.onMessage('zones', (zones: ZoneView[]) => this.renderZones(zones));
+
     // `$` is the schema-callbacks proxy: `$(stateObject)` returns an object whose
     // collection fields expose onAdd/onRemove and whose schema fields expose
     // listen/onChange. This is the Colyseus 0.17 / Schema v4 callbacks API.
@@ -127,6 +151,36 @@ export class OfficeScene extends Scene {
       this.remotes.delete(sessionId);
       emitPresence();
     });
+  }
+
+  /**
+   * Draw the zone rectangles + labels the server pushed. Rectangles are pure GPU
+   * geometry (no texture); we layer them between the floor (0) and avatars (10).
+   * A Rectangle's origin is its CENTER, so we position it at the rect's midpoint.
+   */
+  private renderZones(zones: ZoneView[]) {
+    this.zones = zones;
+    for (const z of zones) {
+      this.add
+        .rectangle(z.x + z.w / 2, z.y + z.h / 2, z.w, z.h, z.color, 0.12)
+        .setStrokeStyle(2, z.color, 0.5)
+        .setDepth(1);
+      this.add
+        .text(z.x + 10, z.y + 8, z.name, { fontSize: '20px', color: '#e6edf3' })
+        .setDepth(2);
+    }
+  }
+
+  /**
+   * Display name of the zone containing (x,y), or '' if none. Same point-in-rect
+   * test the server uses — duplicated here only as the trivial predicate (the zone
+   * DATA stays single-sourced from the server) so the local HUD is lag-free.
+   */
+  private localZoneName(x: number, y: number): string {
+    for (const z of this.zones) {
+      if (x >= z.x && x < z.x + z.w && y >= z.y && y < z.y + z.h) return z.name;
+    }
+    return '';
   }
 
   update() {
@@ -178,7 +232,17 @@ export class OfficeScene extends Scene {
       this.room?.send('move', { x, y });
     }
 
-    // 5) INTERPOLATE REMOTES every frame: ease each remote avatar toward its last
+    // 5) LOCAL ZONE (instant, client-side): which zone is our own avatar in? We
+    // compute it locally for a lag-free HUD — relay philosophy: our own derived
+    // state is instant, while REMOTES' zones come from the synced schema
+    // (player.zone) the server computes. Emit only on change (enter/leave).
+    const zoneName = this.localZoneName(x, y);
+    if (zoneName !== this.lastZone) {
+      this.lastZone = zoneName;
+      EventBus.emit('zone-changed', zoneName);
+    }
+
+    // 6) INTERPOLATE REMOTES every frame: ease each remote avatar toward its last
     // server-reported position. Runs unconditionally (not throttled) because the
     // smoothing must happen on frames where no new server update arrived — that's
     // the whole point of bridging the ~20Hz server tick to ~60Hz rendering.

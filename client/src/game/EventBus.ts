@@ -48,6 +48,8 @@ export interface SwarmEvents {
   'player-moved': (pos: { x: number; y: number }) => void;
   /** Fired when someone joins/leaves the room — total avatars present (incl. you). */
   'presence-changed': (count: number) => void;
+  /** Fired when the local player enters/leaves a zone — the zone's display name ('' = none). */
+  'zone-changed': (zoneName: string) => void;
 }
 
 /** A typed view over Phaser's EventEmitter, constrained to `SwarmEvents`. */

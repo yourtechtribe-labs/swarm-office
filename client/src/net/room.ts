@@ -28,6 +28,21 @@ export type PlayerView = { x: number; y: number; name: string };
 /** Our compile-time view of the room state. */
 export type OfficeStateView = { players: MapSchema<PlayerView> };
 
+/**
+ * Shape of one zone the server pushes via the "zones" message on join. It mirrors
+ * the server's `Zone` type, but it's plain data (no Schema decorators) so sharing
+ * the shape here is safe. The server stays the single source of the actual values.
+ */
+export type ZoneView = {
+  id: string;
+  name: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  color: number;
+};
+
 export type OfficeRoom = Room<OfficeStateView>;
 
 // Server endpoint. Defaults to the local dev server; overridable per environment
