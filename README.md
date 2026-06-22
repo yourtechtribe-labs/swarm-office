@@ -22,7 +22,7 @@ both — team presence **and** AI teammates in one pixel world.
 |-------|------|-----|
 | Client render | **Phaser 4** (WebGL) + **Vite + React** shell | 2D engine on GPU; lightweight SPA shell |
 | Multiplayer | **Colyseus** (authoritative, schema state-sync) | rooms + delta-sync + interest management out of the box |
-| Voice/video (F1) | **LiveKit** (self-host) | open-source proximity audio/video |
+| Voice (F1) | **WebRTC P2P mesh** (signaling over Colyseus) | proximity audio for <=5, no media server; SFU/LiveKit if it ever needs to scale past ~6 |
 | Persistence | **Postgres** + Drizzle | maps, users, layouts |
 | Maps | **Tiled** | standard tilemap editor |
 | AI NPCs (F2) | M.IA gateway hook | agents as office citizens |
@@ -30,7 +30,7 @@ both — team presence **and** AI teammates in one pixel world.
 ## Roadmap
 
 - **F0** — walk + presence + zones + text chat _(✅ done)_
-- **F1** — voice/video proximity (LiveKit) _(next)_
+- **F1** — proximity comms _(✅ zone text + distance voice; audio-only WebRTC P2P mesh, no LiveKit)_
 - **F2** — AI agents as NPCs (M.IA gateway)
 - **F3** — scale: interest management (AOI), Tiled map editor, OIDC/members
 

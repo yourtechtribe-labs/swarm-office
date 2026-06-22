@@ -1,8 +1,10 @@
 # F1 — Proximity Communications (zone text + distance voice)
 
-> Spec / specify phase. Status: **draft for review** (specify → plan gate).
+> Status: **implemented & validated** (F1a zone chat + F1b distance voice).
 > Date: 2026-06-22. Author: Albert Gil López + Claude. Supersedes the one-line F1
-> entry in `docs/SPEC.md` §5.
+> entry in `docs/SPEC.md` §5. Decision vs the original SPEC: voice uses a **WebRTC
+> P2P mesh** (no LiveKit/SFU) for ≤5; voice is gated by **distance within the same
+> zone**.
 
 ## 1. Goal
 

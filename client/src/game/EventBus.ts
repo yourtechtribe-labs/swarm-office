@@ -56,6 +56,10 @@ export interface SwarmEvents {
   'chat-message': (msg: { from: string; text: string; self: boolean }) => void;
   /** React → scene: the chat input gained/lost focus → scene toggles game keyboard. */
   'chat-focus': (focused: boolean) => void;
+  /** React → scene: user clicked "Join voice" (the gesture that unlocks mic + audio). */
+  'voice-join': () => void;
+  /** scene → React: voice status (joined, or an error such as denied mic). */
+  'voice-state': (state: { joined: boolean; error?: string }) => void;
 }
 
 /** A typed view over Phaser's EventEmitter, constrained to `SwarmEvents`. */

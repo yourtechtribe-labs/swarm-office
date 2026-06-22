@@ -8,12 +8,15 @@ import {
   type ZoneView,
 } from '../../net/room';
 import { RemotePlayer } from '../RemotePlayer';
+import { VoicePeer, type SignalData } from '../../net/VoicePeer';
 
 /** World size in pixels. The camera shows a window onto this larger world. */
 const WORLD_W = 1600;
 const WORLD_H = 1200;
 /** Player speed in pixels per second (frame-rate independent — see update()). */
 const SPEED = 220;
+/** Voice proximity radius (px): a peer is audible only within this AND same zone. */
+const VOICE_RADIUS = 200;
 
 type DirKeys = Record<'up' | 'down' | 'left' | 'right', Input.Keyboard.Key>;
 
@@ -60,6 +63,12 @@ export class OfficeScene extends Scene {
   private lastZone = '';
   /** True while the chat input is focused — suspends local movement (see update). */
   private chatFocused = false;
+  /** One WebRTC audio connection per remote peer (voice seam), keyed by sessionId. */
+  private readonly peers = new Map<string, VoicePeer>();
+  /** Our microphone stream once joined (undefined until the "Join voice" gesture). */
+  private localStream?: MediaStream;
+  /** True after the user joined voice (unlocks mic capture + audio autoplay). */
+  private hasJoinedVoice = false;
 
   constructor() {
     super('OfficeScene');
@@ -132,11 +141,35 @@ export class OfficeScene extends Scene {
       this.input.keyboard!.enabled = !focused;
       if (focused) this.player.setVelocity(0);
     };
+    // VOICE JOIN (F1b): the "Join voice" gesture from React. getUserMedia here is
+    // what unlocks BOTH mic capture and audio autoplay (browsers require a user
+    // gesture). On success we add our mic to every already-open peer connection,
+    // which triggers WebRTC (re)negotiation. Denial degrades gracefully (no voice).
+    const onVoiceJoin = async () => {
+      if (this.hasJoinedVoice) return;
+      try {
+        this.localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        this.hasJoinedVoice = true;
+        for (const peer of this.peers.values()) peer.addLocalStream(this.localStream);
+        EventBus.emit('voice-state', { joined: true });
+      } catch (err) {
+        console.error('[voice] could not get microphone', err);
+        EventBus.emit('voice-state', { joined: false, error: String(err) });
+      }
+    };
+
     EventBus.on('chat-send', onChatSend);
     EventBus.on('chat-focus', onChatFocus);
+    EventBus.on('voice-join', onVoiceJoin);
     this.events.once('shutdown', () => {
       EventBus.off('chat-send', onChatSend);
       EventBus.off('chat-focus', onChatFocus);
+      EventBus.off('voice-join', onVoiceJoin);
+      // Tear down all peer connections + stop the mic on scene teardown
+      // (StrictMode/HMR) so we don't leak connections or keep the mic hot.
+      for (const peer of this.peers.values()) peer.close();
+      this.peers.clear();
+      this.localStream?.getTracks().forEach((t) => t.stop());
     });
   }
 
@@ -165,6 +198,13 @@ export class OfficeScene extends Scene {
       });
     });
 
+    // VOICE SIGNALING (F1b): the server relays SDP/ICE blobs between peers; route
+    // each to the matching VoicePeer's perfect-negotiation handler. `from` is the
+    // server-stamped sessionId, so it reliably maps to a peer in our map.
+    room.onMessage('signal', (msg: { from: string; data: SignalData }) => {
+      this.peers.get(msg.from)?.handleSignal(msg.data);
+    });
+
     // `$` is the schema-callbacks proxy: `$(stateObject)` returns an object whose
     // collection fields expose onAdd/onRemove and whose schema fields expose
     // listen/onChange. This is the Colyseus 0.17 / Schema v4 callbacks API.
@@ -183,12 +223,28 @@ export class OfficeScene extends Scene {
       this.remotes.set(sessionId, remote);
       // Each time the server updates this remote, repoint its interpolation target.
       $(player).onChange(() => remote.setTarget(player.x, player.y));
+
+      // VOICE SEAM (F1b): open a WebRTC connection to this peer NOW (connections
+      // follow presence, audio follows distance). Perfect-negotiation role: exactly
+      // one side of each pair is "polite", decided by lexicographic sessionId
+      // compare so the two ends always disagree (which is what resolves glare).
+      // Pass our mic if we've already joined voice; otherwise it's added on join.
+      const polite = room.sessionId > sessionId;
+      const peer = new VoicePeer(
+        polite,
+        (data) => room.send('signal', { to: sessionId, data }),
+        this.localStream ?? null,
+      );
+      this.peers.set(sessionId, peer);
     });
 
     // A player left: despawn its avatar.
     $(room.state).players.onRemove((_player: PlayerView, sessionId: string) => {
       this.remotes.get(sessionId)?.destroy();
       this.remotes.delete(sessionId);
+      // Tear down the voice connection too (connections follow presence).
+      this.peers.get(sessionId)?.close();
+      this.peers.delete(sessionId);
       emitPresence();
     });
   }
@@ -313,6 +369,26 @@ export class OfficeScene extends Scene {
     // the whole point of bridging the ~20Hz server tick to ~60Hz rendering.
     for (const remote of this.remotes.values()) {
       remote.interpolate();
+    }
+
+    // 7) VOICE PROXIMITY GATE (F1b): a remote is audible iff we've joined voice AND
+    // they share our zone AND they're within VOICE_RADIUS. Three existing data
+    // sources combined into one per-frame boolean; the WebRTC connection stays up,
+    // we only flip mute — so approaching gives INSTANT audio with no reconnect.
+    // Zone + positions come from the synced schema (authoritative for everyone), so
+    // both ends agree on who can hear whom.
+    if (this.hasJoinedVoice && this.room) {
+      const me = this.room.state.players.get(this.room.sessionId);
+      if (me) {
+        for (const [sid, peer] of this.peers) {
+          const other = this.room.state.players.get(sid);
+          const audible =
+            !!other &&
+            other.zone === me.zone &&
+            Math.hypot(other.x - me.x, other.y - me.y) < VOICE_RADIUS;
+          peer.setAudible(audible);
+        }
+      }
     }
   }
 }

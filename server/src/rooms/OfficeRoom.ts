@@ -79,6 +79,20 @@ export class OfficeRoom extends Room<{ state: OfficeState }> {
         }
       }
     });
+
+    // VOICE SIGNALING RELAY (F1b): WebRTC needs a side channel to exchange SDP
+    // offers/answers + ICE candidates between two specific peers before media can
+    // flow directly. We reuse this room's WebSocket as that channel. The server is
+    // a DUMB RELAY — it forwards the opaque blob to the addressed peer and never
+    // inspects the media payload (the audio itself never touches the server; it's
+    // peer-to-peer). `from` is stamped server-side from the connection's sessionId
+    // so a client cannot forge who a signal came from (same anti-spoof discipline
+    // as chat). No media server, no token: identity is the sessionId we control.
+    this.onMessage('signal', (client, data: { to?: unknown; data?: unknown }) => {
+      if (typeof data?.to !== 'string') return;
+      const target = this.clients.find((c) => c.sessionId === data.to);
+      target?.send('signal', { from: client.sessionId, data: data.data });
+    });
   }
 
   // A new connection was accepted. Create its avatar at the spawn point and add it

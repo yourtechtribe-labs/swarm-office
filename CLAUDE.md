@@ -56,8 +56,13 @@ Slice 1 = client scaffold + local player movement (done). Slice 2 = Colyseus
 server + presence, remotes interpolated (done). Slice 3 = zones — server owns
 membership (player.zone), client renders areas + shows local zone (done). Slice 4
 = text chat — transient broadcast, React↔scene↔room over the bus, server-side
-input validation (done). **F0 complete.** Next: F1 voice (LiveKit), F2 AI NPCs
-(M.IA gateway), F3 scale.
+input validation (done). **F0 complete.**
+
+**F1 — proximity comms (done):** F1a zone-scoped text chat (filter broadcast by
+player.zone) + F1b distance-gated voice (WebRTC **P2P mesh**, audio-only, ≤5, no
+LiveKit; signaling over Colyseus, perfect negotiation; connections follow presence,
+audio follows distance). Spec: `docs/specs/F1-proximity-comms.md`. Next: F2 AI NPCs
+(M.IA gateway), F3 scale (SFU + TURN + video).
 
 ## Running the dev stack
 

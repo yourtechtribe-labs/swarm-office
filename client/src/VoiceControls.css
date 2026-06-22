@@ -1,0 +1,40 @@
+.voice {
+  position: fixed;
+  top: 12px;
+  right: 12px;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font:
+    13px/1.4 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
+}
+
+.voice__btn {
+  padding: 8px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  background: rgba(13, 20, 28, 0.85);
+  color: #e6edf3;
+  font: inherit;
+  cursor: pointer;
+}
+
+.voice__btn:hover {
+  border-color: #4fd1c5;
+}
+
+.voice--on {
+  padding: 8px 14px;
+  border-radius: 8px;
+  background: rgba(13, 20, 28, 0.72);
+  color: #4fd1c5;
+  backdrop-filter: blur(4px);
+}
+
+.voice__err {
+  color: #fc8181;
+}

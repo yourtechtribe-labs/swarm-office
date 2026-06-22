@@ -78,7 +78,10 @@ necesaria para anti-cheat) se difiere a F3.
   Slice 4 = chat de texto (broadcast transitorio; bus React↔escena↔room; teclado del
   juego suspendido al escribir; validación de input en servidor) (hecho).
   (Postgres se añade en una fase futura, cuando haya estado que persistir.)
-- **F1 — Voz/vídeo**: LiveKit proximidad + coturn.
+- **F1 — Comms por proximidad (v1 HECHO)**: chat por **zona** (F1a) + voz por
+  **distancia dentro de la zona** (F1b, WebRTC **P2P mesh**, audio-only, ≤5 — sin
+  LiveKit; signaling sobre Colyseus, perfect negotiation). Vídeo, TURN (cross-NAT) y
+  escala SFU → F1.x/F3. Spec: `docs/specs/F1-proximity-comms.md`.
 - **F2 — Agentes IA como NPCs**: hook al gateway M.IA; un agente Predicta aparece y conversa.
 - **F3 — Escala y producto**: interest management (AOI), editor de mapas Tiled, OIDC/members area.
 

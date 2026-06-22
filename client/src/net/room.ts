@@ -23,7 +23,7 @@ import type { MapSchema } from '@colyseus/schema';
  */
 
 /** Our compile-time view of the server's Player schema. */
-export type PlayerView = { x: number; y: number; name: string };
+export type PlayerView = { x: number; y: number; name: string; zone: string };
 
 /** Our compile-time view of the room state. */
 export type OfficeStateView = { players: MapSchema<PlayerView> };
