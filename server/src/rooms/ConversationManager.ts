@@ -1,5 +1,10 @@
-import { gatewayConfigured, gatewayComplete, type ChatMessage } from './miaGateway';
+import { gatewayConfigured, gatewayChat, type ChatMessage } from './miaGateway';
 import type { AgentConfig } from '../agents/roster';
+import { TOOL_DEFS, YIELD_TURN, executeToolCall, type AgentBody, type ToolContext } from './tools';
+
+// Re-export the body contract so callers (and the probe) get it from the manager, even
+// though it's DEFINED in tools.ts (where the tool handlers operate on it).
+export type { AgentBody } from './tools';
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════
@@ -52,21 +57,28 @@ import type { AgentConfig } from '../agents/roster';
  *  `name` is the display name used to label the line for the model ("Seneca: …"). */
 export type TranscriptEntry = { from: string; name: string; text: string };
 
-/** The minimal view the manager needs of an agent's "body" (an NpcController). In F4a
- *  it only reads `currentZone` (to build the participant set) + `key`. F4b's move tool
- *  will extend the bodies, not this contract. Typing it as an interface (not the
- *  concrete NpcController) is what lets the probe pass cheap stubs. */
-export type AgentBody = { readonly key: string; readonly currentZone: string };
+// AgentBody (the body contract) is imported + re-exported above; it lives in tools.ts
+// because the tool handlers operate on it. In F4a the manager read only key + currentZone;
+// F4b adds moveToZone (the move tool's effect). Typing bodies as this interface — not the
+// concrete NpcController — is what lets the probe pass cheap stubs.
 
-/** Produces ONE agent turn. `mode` is 'turn' (debate) or 'conclude' (the final
- *  decision line). Returns raw text that MAY contain the [PASS] sentinel. Two impls:
- *  a live one (calls the gateway) and a scripted one (deterministic, off-VPN + tests).
- *  Injectable so the probe can force PASS / force never-PASS. */
+/** The outcome of ONE agent turn (F4b). `text` is what the agent said (null/empty if it
+ *  only acted or passed); `toolCalls` are the actions it chose (move, or yield_turn as a
+ *  PASS). F4a turns simply return `{ text, toolCalls: [] }`. */
+export type TurnResult = { text: string | null; toolCalls: TurnToolCall[] };
+/** A tool call as the engine surfaces it: name + parsed args. (Mirror of miaGateway's
+ *  ToolCall minus the id, which the manager doesn't need.) */
+export type TurnToolCall = { name: string; args: Record<string, unknown> };
+
+/** Produces ONE agent turn. `mode` is 'turn' (debate) or 'conclude' (the final decision
+ *  line). Returns text (may contain the [PASS] sentinel) AND any tool calls. Two impls:
+ *  a live one (calls the gateway, with tools) and a scripted one (deterministic, off-VPN
+ *  + tests). Injectable so the probe can force PASS / force never-PASS / force a move. */
 export type TurnEngine = (
   agent: AgentConfig,
   transcript: TranscriptEntry[],
   mode: 'turn' | 'conclude',
-) => Promise<string>;
+) => Promise<TurnResult>;
 
 type LogFn = (level: 'info' | 'warn' | 'error', text: string) => void;
 type BroadcastFn = (zone: string, from: string, text: string) => void;
@@ -84,16 +96,20 @@ type ManagerOpts = {
   /** Pause between turns (ms) so humans can read the round + the movement shows. 0 in
    *  the probe for speed; a small value in prod. */
   turnDelayMs?: number;
+  /** F4b: offer the move/yield_turn tools to the live model. Default true. (The live
+   *  engine only; the scripted/injected engines ignore it.) */
+  enableTools?: boolean;
 };
 
-/** Tolerant PASS detection: Qwen may wrap the sentinel ("de acuerdo, [PASS]"), so we
- *  match the token anywhere, case-insensitively, rather than requiring an exact string. */
-function isPass(raw: string): boolean {
-  return /\[PASS\]/i.test(raw) || raw.trim() === '';
+/** Tolerant [PASS]-sentinel detection (F4a path): Qwen may wrap it ("de acuerdo,
+ *  [PASS]"), so we match the token anywhere, case-insensitively. In F4b a PASS can also
+ *  come as a `yield_turn` tool call; runRound combines both signals. */
+function isPassText(raw: string | null): boolean {
+  return !!raw && /\[PASS\]/i.test(raw);
 }
 /** Strip the sentinel from anything we broadcast (a PASS turn shows nothing). */
-function stripPass(raw: string): string {
-  return raw.replace(/\[PASS\]/gi, '').trim();
+function stripPass(raw: string | null): string {
+  return (raw ?? '').replace(/\[PASS\]/gi, '').trim();
 }
 
 /** Appended to a live agent's persona on a normal turn: how to contribute, and how to
@@ -120,6 +136,7 @@ export class ConversationManager {
   private readonly engine: TurnEngine;
   private readonly runawayCap: number;
   private readonly turnDelayMs: number;
+  private readonly toolsEnabled: boolean;
 
   /** The single in-progress round, if any. The shared transcript IS the round state. */
   private transcript: TranscriptEntry[] = [];
@@ -142,6 +159,7 @@ export class ConversationManager {
     this.log = opts.log;
     this.runawayCap = opts.runawayCap ?? 30;
     this.turnDelayMs = opts.turnDelayMs ?? 0;
+    this.toolsEnabled = opts.enableTools ?? true;
     // Pick the turn source ONCE: an explicit override (probe/test) wins; otherwise the
     // live gateway if it's configured, else the scripted fallback (off-VPN runtime).
     this.engine =
@@ -230,21 +248,44 @@ export class ConversationManager {
     while (!this.stopped && consecutivePasses < 2 && turnIndex < this.runawayCap) {
       const agent = this.participants[turnIndex % this.participants.length];
       const t0 = Date.now();
-      const raw = await this.engine(agent, this.transcript, 'turn');
+      const result = await this.engine(agent, this.transcript, 'turn');
       turnIndex++;
       const roundMs = Date.now() - roundStart;
 
-      if (isPass(raw)) {
-        // A PASS: nothing broadcast, but it counts toward consensus.
+      // F4b — a turn may carry tool calls. `yield_turn` is a PASS SIGNAL (not executed);
+      // every other call (move) runs single-step against the world, server-side.
+      let yielded = false;
+      let acted = false;
+      for (const call of result.toolCalls) {
+        if (call.name === YIELD_TURN) {
+          yielded = true;
+          continue;
+        }
+        const out = executeToolCall({ id: '', name: call.name, args: call.args }, this.toolContext(agent.key));
+        acted = acted || out.ok;
+        this.log(out.ok ? 'info' : 'warn', `🔧 turn ${turnIndex} · ${agent.name} · ${call.name} ${out.note}`);
+      }
+
+      const text = stripPass(result.text);
+      // A PASS is: an explicit yield_turn, OR the [PASS] sentinel with no action, OR an
+      // utterly empty turn (no text, no tool calls). A move (acted) or any speech breaks
+      // the streak — it's a real contribution, not "nothing to add".
+      const passed =
+        yielded ||
+        (isPassText(result.text) && !acted) ||
+        (!text && !acted && result.toolCalls.length === 0);
+
+      if (passed) {
         consecutivePasses++;
         this.log('info', `🔁 turn ${turnIndex} · ${agent.name} · PASS · round Σ ${(roundMs / 1000).toFixed(1)}s`);
       } else {
         consecutivePasses = 0;
-        const line = stripPass(raw);
-        this.transcript.push({ from: agent.key, name: agent.name, text: line });
-        this.broadcastChat(this.zone, agent.key, line);
-        lastSpeaker = agent;
-        this.log('info', `🔁 turn ${turnIndex} · ${agent.name} · ${Date.now() - t0}ms · round Σ ${(roundMs / 1000).toFixed(1)}s`);
+        if (text) {
+          this.transcript.push({ from: agent.key, name: agent.name, text });
+          this.broadcastChat(this.zone, agent.key, text);
+          lastSpeaker = agent;
+        }
+        this.log('info', `🔁 turn ${turnIndex} · ${agent.name} · ${Date.now() - t0}ms${acted ? ' · 🚶 move' : ''} · round Σ ${(roundMs / 1000).toFixed(1)}s`);
       }
 
       // STOP may have been requested during the await (the in-flight line above was the
@@ -266,14 +307,20 @@ export class ConversationManager {
     // Consensus: the agents passed. Produce the decision line (spec §4.3) from the last
     // agent that actually spoke — after two passes, that's the last NON-pass speaker.
     if (lastSpeaker) {
-      const raw = await this.engine(lastSpeaker, this.transcript, 'conclude');
-      const line = stripPass(raw);
+      const result = await this.engine(lastSpeaker, this.transcript, 'conclude');
+      const line = stripPass(result.text);
       if (line) {
         this.transcript.push({ from: lastSpeaker.key, name: lastSpeaker.name, text: line });
         this.broadcastChat(this.zone, lastSpeaker.key, line);
       }
     }
     this.log('info', `✅ consenso tras ${turnIndex} turnos · round Σ ${((Date.now() - roundStart) / 1000).toFixed(1)}s`);
+  }
+
+  /** Build the context a tool handler needs: who is acting + the body map (so `move`
+   *  can resolve "toward:<agentKey>" and call moveToZone on the right body). */
+  private toolContext(agentKey: string): ToolContext {
+    return { agentKey, bodies: this.bodies };
   }
 
   /** LIVE turn: the gateway IS the brain. System = persona + the turn/conclusion
@@ -292,7 +339,10 @@ export class ConversationManager {
       ...transcript.map((e): ChatMessage => ({ role: 'user', content: `${e.name || 'Colega'}: ${e.text}` })),
     ];
     try {
-      return await gatewayComplete(messages);
+      // F4b — offer tools only on a NORMAL turn; a conclusion is pure text (we want a
+      // decision line, not an action). The model may answer with text, tool calls, or both.
+      const reply = await gatewayChat(messages, this.toolsEnabled && mode === 'turn' ? { tools: TOOL_DEFS } : undefined);
+      return { text: reply.content, toolCalls: reply.toolCalls.map((c) => ({ name: c.name, args: c.args })) };
     } catch (err) {
       this.log('warn', `⚠️ gateway falló → turno scripted: ${(err as Error).message}`);
       return this.scriptedEngine(agent, transcript, mode);
@@ -302,15 +352,16 @@ export class ConversationManager {
   /** SCRIPTED turn (off-VPN runtime + the deterministic test path). Speaks a canned
    *  line for the first SCRIPTED_LINES turns, then PASSes so the round converges; the
    *  conclusion is a fixed decision line. Keeps the repo working with zero external
-   *  setup, exactly like F2's scriptedReply (relocated here, not deleted). */
+   *  setup, exactly like F2's scriptedReply (relocated here, not deleted). The scripted
+   *  path never emits tool calls (no actions), so toolCalls is always empty. */
   private scriptedEngine: TurnEngine = (agent, _transcript, mode) => {
-    if (mode === 'conclude') return Promise.resolve('Decidimos: lo dejamos aquí por ahora.');
+    if (mode === 'conclude') return Promise.resolve({ text: 'Decidimos: lo dejamos aquí por ahora.', toolCalls: [] });
     this.scriptedTurns++;
-    const reply =
+    const text =
       this.scriptedTurns <= SCRIPTED_LINES
         ? `${agent.name}: aporto mi punto de vista (${this.scriptedTurns}).`
         : '[PASS]';
-    return Promise.resolve(reply);
+    return Promise.resolve({ text, toolCalls: [] });
   };
 }
 

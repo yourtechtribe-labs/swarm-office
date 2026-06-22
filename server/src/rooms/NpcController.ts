@@ -151,6 +151,23 @@ export class NpcController {
     this.npc.zone = zoneAt(this.npc.x, this.npc.y);
   }
 
+  /**
+   * F4b — the `move` tool's effect: relocate this agent to another zone. We change the
+   * HOME zone (not just a one-off target) so the wander then continues IN the new zone
+   * rather than the next `pickNewTarget` snapping the agent back. The agent's
+   * `currentZone` updates as `update()` walks it across the boundary; once it's out of
+   * its old zone it naturally leaves that zone's (zone-scoped) conversation — exactly
+   * the spec's "out of zone → leaves" with no extra code. Returns false for an unknown
+   * zone id so the tool handler can reject the call (untrusted model args, spec §5).
+   */
+  moveToZone(zoneId: string): boolean {
+    const dest = ZONES.find((z) => z.id === zoneId);
+    if (!dest || !this.npc) return false;
+    this.home = dest;
+    this.pickNewTarget(); // aim at a point inside the new home zone; update() walks there
+    return true;
+  }
+
   /** Choose a random point inside the home zone (minus a margin) as the next target. */
   private pickNewTarget(): void {
     const minX = this.home.x + ZONE_MARGIN;

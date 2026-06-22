@@ -33,11 +33,12 @@ function assert(cond: boolean, msg: string): void {
   if (!cond) throw new Error(`ASSERT FAILED: ${msg}`);
 }
 
-/** Stub bodies: the manager only needs `key` + `currentZone` from a body in F4a.
- *  Both roster agents report 'lobby' so the seed (also 'lobby') includes them. */
+/** Stub bodies: the manager reads `key` + `currentZone`; F4b adds `moveToZone` (a no-op
+ *  here, true = accepted). Both roster agents report 'lobby' so the seed (also 'lobby')
+ *  includes them. */
 function lobbyBodies(): Map<string, AgentBody> {
   const m = new Map<string, AgentBody>();
-  for (const a of ROSTER) m.set(a.key, { key: a.key, currentZone: 'lobby' });
+  for (const a of ROSTER) m.set(a.key, { key: a.key, currentZone: 'lobby', moveToZone: () => true });
   return m;
 }
 
@@ -65,10 +66,10 @@ async function scenarioTermination(): Promise<void> {
   // Speak for the first 4 turns, then PASS forever → turn 5 (Seneca) PASS, turn 6
   // (Marcus) PASS → two consecutive → consensus.
   let spoken = 0;
-  const engine: TurnEngine = oneInFlight(async (agent, transcript, mode) => {
-    if (mode === 'conclude') return `Decidimos: seguimos con el plan.`;
+  const engine: TurnEngine = oneInFlight(async (agent, _transcript, mode) => {
+    if (mode === 'conclude') return { text: `Decidimos: seguimos con el plan.`, toolCalls: [] };
     spoken++;
-    return spoken <= 4 ? `${agent.name}: aporto la idea ${spoken}.` : '[PASS]';
+    return { text: spoken <= 4 ? `${agent.name}: aporto la idea ${spoken}.` : '[PASS]', toolCalls: [] };
   });
   const cm = new ConversationManager({
     roster: ROSTER,
@@ -107,7 +108,7 @@ async function scenarioStop(): Promise<void> {
   const engine: TurnEngine = oneInFlight(async (agent) => {
     turns++;
     if (turns === 2) cmRef!.stop(); // simulate the human pressing /stop mid-round
-    return `${agent.name}: hablando (${turns}).`;
+    return { text: `${agent.name}: hablando (${turns}).`, toolCalls: [] };
   });
   const cm = new ConversationManager({
     roster: ROSTER,
@@ -133,7 +134,7 @@ async function scenarioRunaway(): Promise<void> {
   const lines: { from: string; text: string }[] = [];
   const logs: Log[] = [];
   // PASS is "disabled": every turn speaks, forever → the backstop must fire.
-  const engine: TurnEngine = oneInFlight(async (agent) => `${agent.name}: sin parar.`);
+  const engine: TurnEngine = oneInFlight(async (agent) => ({ text: `${agent.name}: sin parar.`, toolCalls: [] }));
   const cm = new ConversationManager({
     roster: ROSTER,
     bodies: lobbyBodies(),
