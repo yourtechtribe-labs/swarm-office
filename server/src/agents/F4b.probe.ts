@@ -23,18 +23,26 @@ function assert(cond: boolean, msg: string): void {
   if (!cond) throw new Error(`ASSERT FAILED: ${msg}`);
 }
 
-/** A spy body: records moveToZone calls and accepts only the zones in `known`. */
+/** A spy body: a MUTABLE currentZone (so multi-round tests see relocation + reset),
+ *  records moveToZone calls, and accepts only the zones in `known`. */
 type SpyBody = AgentBody & { moves: string[] };
-function spyBody(key: string, zone: string, known: string[]): SpyBody {
+function spyBody(key: string, home: string, known: string[]): SpyBody {
   const moves: string[] = [];
+  let cur = home;
   return {
     key,
-    currentZone: zone,
+    get currentZone() {
+      return cur;
+    },
     moves,
     moveToZone(zoneId: string) {
       if (!known.includes(zoneId)) return false;
+      cur = zoneId;
       moves.push(zoneId);
       return true;
+    },
+    returnHome() {
+      cur = home;
     },
   };
 }
@@ -127,11 +135,53 @@ async function scenarioYieldIsPass(): Promise<void> {
   console.log('  ✓ manager: yield_turn is treated as a PASS (two → consensus)');
 }
 
+async function scenarioMultiRound(): Promise<void> {
+  // The bug the F4b E2E missed: move permanently relocates an agent, so after a
+  // move-heavy round the agents are scattered and a 2nd /seed from the hub finds <2 →
+  // no round. The fix: agents return home at round end. This locks it.
+  const bodies = bodiesIn('lobby', ['lobby', 'kitchen', 'meeting']);
+  const logs: { level: string; text: string }[] = [];
+  let phase = 1;
+  let p1 = 0;
+  const engine: TurnEngine = async (_agent, _t, mode) => {
+    if (mode === 'conclude') return { text: 'Decidimos: ok.', toolCalls: [] };
+    if (phase === 1) {
+      const i = p1++;
+      if (i === 0) return { text: null, toolCalls: [{ name: 'move', args: { target: 'kitchen' } }] };
+      if (i === 1) return { text: null, toolCalls: [{ name: 'move', args: { target: 'meeting' } }] };
+      return { text: '[PASS]', toolCalls: [] };
+    }
+    return { text: '[PASS]', toolCalls: [] }; // phase 2: converge immediately
+  };
+  const cm = new ConversationManager({
+    roster: ROSTER,
+    bodies: bodies as Map<string, AgentBody>,
+    broadcastChat: () => {},
+    log: (level, text) => logs.push({ level, text }),
+    turnEngine: engine,
+    turnDelayMs: 0,
+  });
+
+  cm.seed('lobby', 'ronda 1 con movimiento', 'Albert');
+  await cm.settled();
+  assert(bodies.get('npc:seneca')!.currentZone === 'lobby', 'agent returns to the hub after a move-heavy round');
+  assert(bodies.get('npc:marcus')!.currentZone === 'lobby', 'both agents reconvene at the hub');
+
+  phase = 2;
+  cm.seed('lobby', 'ronda 2 desde el hub', 'Albert');
+  await cm.settled();
+  const seeded = logs.filter((l) => /ronda sembrada/.test(l.text)).length;
+  const ignored = logs.filter((l) => /seed ignorado/.test(l.text)).length;
+  assert(seeded === 2 && ignored === 0, `the 2nd seed has quorum (sembrada=${seeded}, ignorado=${ignored})`);
+  console.log('  ✓ multi-round: agents reconvene → a 2nd seed from the hub still works');
+}
+
 async function main(): Promise<void> {
   console.log('F4b probe — tool-calling (move, yield_turn)');
   scenarioExecuteToolCall();
   await scenarioManagerMove();
   await scenarioYieldIsPass();
+  await scenarioMultiRound();
   console.log(`\n✅ F4b probe passed (${checks} assertions)`);
 }
 

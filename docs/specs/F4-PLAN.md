@@ -165,3 +165,24 @@ OpenAI shape on this vLLM build (spec §6 pre-req) — needs UAB VPN.
 Real sandbox + real tools, multi-step ReAct loops, NPC voice, pathfinding, conversation
 persistence, >handful of agents, the optional "thinking…" indicator (deferred; STOP is the
 load-bearing control that ships).
+
+## 8. F4b v1 — known deviations & behaviours (honest)
+
+- **DEVIATION from spec §4.7 "out of zone → leaves the conversation."** v1 does NOT
+  implement this. The participant set is fixed at seed time and the round round-robins
+  those agents for its whole duration; an agent that `move`s to another zone STILL gets
+  turns, and its lines are broadcast to the **seed zone**, not its current zone. So an
+  agent that walks to the kitchen keeps "talking" in the lobby chat. This is a real
+  deviation (not a deferral the spec sanctioned); re-filtering participants by live zone
+  each turn — and broadcasting to each agent's current zone — is deferred.
+- **Return-home between rounds (added behaviour, not in the spec).** Because `move`
+  permanently relocates an agent, a move-heavy round would leave the agents scattered and
+  a 2nd `/seed` from the hub would find <2 agents → no round (found + fixed in the F4b
+  E2E; the first cut shipped this bug). v1 resolves it by **snapping every participant
+  back to its home zone at round end** (in the manager's shared `finally`, so it covers
+  consensus, STOP, runaway, and errors). The hub (lobby) is thus a stable reconvene point.
+  Covered by the `multi-round` probe scenario + verified live (seed → move → seed again).
+- **Move-heavy rounds may not converge** and can hit the runaway backstop (observed live:
+  a "scatter and coordinate" prompt ran to the 30-turn cap). That's the backstop doing its
+  job (bounding cost), not a bug — but a sign that move + chat rounds are less likely to
+  reach double-PASS than pure-chat rounds.

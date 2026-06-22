@@ -38,7 +38,7 @@ function assert(cond: boolean, msg: string): void {
  *  includes them. */
 function lobbyBodies(): Map<string, AgentBody> {
   const m = new Map<string, AgentBody>();
-  for (const a of ROSTER) m.set(a.key, { key: a.key, currentZone: 'lobby', moveToZone: () => true });
+  for (const a of ROSTER) m.set(a.key, { key: a.key, currentZone: 'lobby', moveToZone: () => true, returnHome: () => {} });
   return m;
 }
 
@@ -178,12 +178,44 @@ async function scenarioDefaultEngine(): Promise<void> {
   console.log('  ✓ default engine: off-VPN scripted fallback round converges');
 }
 
+async function scenarioReseed(): Promise<void> {
+  // A human re-seeds mid-round (spec §4.4): the new line is injected into the running
+  // round; it must NOT start a second loop.
+  const lines: { from: string; text: string }[] = [];
+  const logs: Log[] = [];
+  let cmRef: ConversationManager | null = null;
+  let turn = 0;
+  const engine: TurnEngine = oneInFlight(async (agent) => {
+    turn++;
+    if (turn === 1) cmRef!.seed('lobby', 'NUEVO TEMA inyectado', 'Albert'); // re-seed mid-round
+    return { text: turn <= 4 ? `${agent.name}: línea ${turn}.` : '[PASS]', toolCalls: [] };
+  });
+  const cm = new ConversationManager({
+    roster: ROSTER,
+    bodies: lobbyBodies(),
+    broadcastChat: (_z, from, text) => lines.push({ from, text }),
+    log: (level, text) => logs.push({ level, text }),
+    turnEngine: engine,
+    turnDelayMs: 0,
+  });
+  cmRef = cm;
+  cm.seed('lobby', 'tema inicial', 'Albert');
+  await cm.settled();
+
+  assert(lines.some((l) => l.text === 'NUEVO TEMA inyectado'), 're-seed line is injected + echoed to the zone');
+  assert(logs.filter((l) => /ronda sembrada/.test(l.text)).length === 1, 're-seed does NOT start a second round (one "sembrada")');
+  assert(logs.some((l) => /re-seed/.test(l.text)), 're-seed is logged as a mid-round injection');
+  assert(!cm.isRunning, 'the single round still terminates');
+  console.log('  ✓ reseed: a mid-round /seed injects context without a second loop');
+}
+
 async function main(): Promise<void> {
   console.log('F4a probe — conversation loop (scripted, deterministic)');
   await scenarioTermination();
   await scenarioStop();
   await scenarioRunaway();
   await scenarioDefaultEngine();
+  await scenarioReseed();
   console.log(`\n✅ F4a probe passed (${checks} assertions)`);
 }
 

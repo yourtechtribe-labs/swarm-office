@@ -168,6 +168,25 @@ export class NpcController {
     return true;
   }
 
+  /**
+   * Round-lifecycle reset (F4b): snap the agent back to its ORIGINAL home zone and
+   * re-centre it there. Called by the ConversationManager at round end so that a round
+   * where agents used `move` to scatter doesn't leave them stranded — the office
+   * reconvenes at the hub (lobby) and the next /seed has quorum. We SNAP (set position)
+   * rather than walk, so the next round can start immediately without a dead window
+   * while avatars trundle back. (Found in the F4b E2E: a 2nd seed found 0 agents.)
+   */
+  returnHome(): void {
+    const origin = ZONES.find((z) => z.id === this.config.homeZone) ?? this.home;
+    this.home = origin;
+    if (this.npc) {
+      this.npc.x = origin.x + origin.w / 2;
+      this.npc.y = origin.y + origin.h / 2;
+      this.npc.zone = zoneAt(this.npc.x, this.npc.y);
+    }
+    this.pickNewTarget();
+  }
+
   /** Choose a random point inside the home zone (minus a margin) as the next target. */
   private pickNewTarget(): void {
     const minX = this.home.x + ZONE_MARGIN;

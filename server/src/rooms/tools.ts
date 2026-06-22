@@ -36,6 +36,9 @@ export type AgentBody = {
   readonly key: string;
   readonly currentZone: string;
   moveToZone(zoneId: string): boolean;
+  /** Round-lifecycle reset: snap the agent back to its home zone (the conversation hub),
+   *  so a move-heavy round doesn't leave it stranded and the next round has quorum. */
+  returnHome(): void;
 };
 
 /** What a handler needs to act: who is calling, and the full body map (so `move` can

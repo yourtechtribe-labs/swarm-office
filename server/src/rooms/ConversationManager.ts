@@ -221,9 +221,24 @@ export class ConversationManager {
     this.roundPromise = this.runRound()
       .catch((err) => this.log('error', `conversación: ${(err as Error).message}`))
       .finally(() => {
+        // Round over (any path: consensus, STOP, runaway, or an error) → snap the
+        // agents back to their home zone, so a move-heavy round doesn't strand them and
+        // the NEXT /seed has quorum. (Found in F4b E2E: a 2nd seed found 0 agents — the
+        // move tool had permanently relocated them.) Done HERE in the shared finally so
+        // it can't be skipped by an early return inside runRound.
+        this.returnParticipantsHome();
         this.running = false;
         this.roundPromise = null;
       });
+  }
+
+  /** Snap every participant of the round just ended back to its roster home zone. Idle
+   *  between rounds, the office reconvenes at the hub (lobby), so seeding works again. */
+  private returnParticipantsHome(): void {
+    for (const agent of this.participants) {
+      const body = this.bodies.get(agent.key);
+      if (body && body.currentZone !== agent.homeZone) body.returnHome();
+    }
   }
 
   /** Human STOP: halt the round immediately. The loop checks `stopped` after each await,
