@@ -77,6 +77,12 @@ npm run dev` (Vite on :5173). Open two browser tabs to see presence. Authority
 model is **client-authoritative relay** (server owns room state, not movement);
 see docs/SPEC.md § "modelo de autoridad".
 
+**Gotcha — `tsx watch` silent failed-rebind:** if the server reload logs
+`EADDRINUSE: :::2567`, the OLD listener never released the port, so `tsx` is still
+serving the PREVIOUS code even though it printed "Restarting…". Don't trust that
+log — kill whatever holds :2567 and restart fresh, or you'll test stale code. (Bit
+us once validating an F2 change against the prior build.)
+
 ## Networking version lock (HARD RULE)
 
 server `colyseus` and client `@colyseus/sdk` MUST stay on the same 0.17.x line —
