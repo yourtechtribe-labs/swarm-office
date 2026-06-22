@@ -51,10 +51,10 @@ export class OfficeRoom extends Room<{ state: OfficeState }> {
     });
 
     // CHAT: a TRANSIENT message, not state. Unlike positions (continuous "current
-    // truth" → schema sync), a chat line is an event that happened once → we
-    // broadcast it and forget. So it lives in messages, not OfficeState; the
-    // trade-off is that late joiners don't see prior lines (history/persistence is
-    // deferred — would need a ring buffer in state or a DB).
+    // truth" → schema sync), a chat line is an event that happened once → we send it
+    // to the right recipients and forget. So it lives in messages, not OfficeState;
+    // the trade-off is that late joiners don't see prior lines (history/persistence
+    // is deferred — would need a ring buffer in state or a DB).
     this.onMessage('chat', (client, data: { text?: unknown }) => {
       // Validate on the SERVER — this is the security boundary (OWASP A03), not the
       // client. Coerce-check the type first so a malformed payload can't throw on
@@ -64,11 +64,20 @@ export class OfficeRoom extends Room<{ state: OfficeState }> {
       const text = data.text.trim();
       if (!text) return;
       const capped = text.slice(0, 500);
-      // Broadcast to everyone present INCLUDING the sender, so a single code path
-      // (receive → render) builds the message list; the client marks its own lines
-      // by comparing `from` to its sessionId. `from` is the sessionId (identity we
-      // control), never a client-settable name (which would be a spoofing vector).
-      this.broadcast('chat', { from: client.sessionId, text: capped });
+      // ZONE-SCOPED delivery (F1a): send only to clients in the SAME zone as the
+      // sender — the no-zone hub ('') is its own group (`'' === ''`). player.zone is
+      // computed authoritatively on join + every move (Slice 3), so we just read it.
+      // The sender always matches its own zone, so it still receives its own line
+      // (single receive→render path; the client marks its own lines via `from`).
+      // `from` is the server-controlled sessionId — never a client-settable name
+      // (anti-spoof). This replaces the earlier global broadcast.
+      const senderZone = this.state.players.get(client.sessionId)?.zone ?? '';
+      for (const c of this.clients) {
+        const recipientZone = this.state.players.get(c.sessionId)?.zone ?? '';
+        if (recipientZone === senderZone) {
+          c.send('chat', { from: client.sessionId, text: capped });
+        }
+      }
     });
   }
 
