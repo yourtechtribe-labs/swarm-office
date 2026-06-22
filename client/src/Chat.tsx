@@ -29,6 +29,7 @@ export function Chat() {
   const [lines, setLines] = useState<ChatLine[]>([]);
   const [draft, setDraft] = useState('');
   const listRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const nextId = useRef(0);
 
   // Receive: scene → bus → here. slice(-MAX_LINES) bounds memory + DOM nodes.
@@ -46,6 +47,42 @@ export function Chat() {
     const el = listRef.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [lines]);
+
+  // FOCUS SHORTCUTS — make the chat feel like a game composer (Gather/Slack style):
+  //   • press "c" to jump into the chat box (when you're NOT already typing),
+  //   • click anywhere outside the chat to drop focus (back to walking),
+  //   • Escape blurs the box (handled on the input below).
+  // We drive focus via the real input ref, so the input's own onFocus/onBlur still
+  // fire → the 'chat-focus' bus events still toggle the game keyboard + its global
+  // key capture (see onChatFocus in OfficeScene). i.e. these are pure conveniences
+  // layered on the existing focus contract, not a second source of truth.
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      // "c" focuses chat — but ONLY when focus isn't already in a text field, so
+      // typing a literal "c" in the box (or any other input) is never hijacked.
+      const ae = document.activeElement;
+      const typing = ae instanceof HTMLInputElement || ae instanceof HTMLTextAreaElement;
+      if (!typing && (e.key === 'c' || e.key === 'C') && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        e.preventDefault(); // swallow this keystroke so the "c" doesn't land as text
+        inputRef.current?.focus();
+      }
+    };
+    const onPointerDown = (e: PointerEvent) => {
+      // Click/tap outside the chat panel → blur, so the user returns to walking
+      // without an extra keypress. Only act when the box currently holds focus, and
+      // only when the click landed OUTSIDE the .chat container (clicking inside it —
+      // the input, the log — must keep focus).
+      if (document.activeElement !== inputRef.current) return;
+      const chatEl = inputRef.current?.closest('.chat');
+      if (chatEl && !chatEl.contains(e.target as Node)) inputRef.current?.blur();
+    };
+    document.addEventListener('keydown', onKeyDown);
+    document.addEventListener('pointerdown', onPointerDown);
+    return () => {
+      document.removeEventListener('keydown', onKeyDown);
+      document.removeEventListener('pointerdown', onPointerDown);
+    };
+  }, []);
 
   const send = (e: React.FormEvent) => {
     // A real <form onSubmit> + preventDefault: Enter submits here once, and the
@@ -74,6 +111,7 @@ export function Chat() {
       </div>
       <form className="chat__form" onSubmit={send}>
         <input
+          ref={inputRef}
           className="chat__input"
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
@@ -81,7 +119,12 @@ export function Chat() {
           // into this box doesn't move the avatar.
           onFocus={() => EventBus.emit('chat-focus', true)}
           onBlur={() => EventBus.emit('chat-focus', false)}
-          placeholder="Type a message…"
+          // Escape drops focus (blur → onBlur → 'chat-focus' false → back to walking).
+          // Escape isn't in Phaser's capture list, so it reaches the input fine.
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') inputRef.current?.blur();
+          }}
+          placeholder="Press C to chat…"
           maxLength={500}
           aria-label="Chat message"
         />

@@ -49,7 +49,9 @@ export class OfficeRoom extends Room<{ state: OfficeState }> {
     // F2a — spawn the AI NPC as a citizen of this room. It's a normal Player entry
     // (isNpc=true) the NpcController owns; clients render it via the same player seam
     // as any human remote. Spawned before any human joins so it's already present.
-    this.npc = new NpcController(this.state);
+    // Pass our serverLog so the NPC's events surface both in the terminal AND the
+    // in-browser log panel (bound here so the controller stays Colyseus-agnostic).
+    this.npc = new NpcController(this.state, (level, text) => this.serverLog(level, text));
     this.npc.spawn();
 
     // The ONE server simulation tick (see the class comment): drive the NPC's wander.
@@ -122,6 +124,20 @@ export class OfficeRoom extends Room<{ state: OfficeState }> {
   }
 
   /**
+   * Emit a server event to BOTH the terminal (console) AND every connected client
+   * (a `server-log` broadcast → the in-browser log panel). One sink so operator
+   * visibility is identical in the terminal and the UI. Transient like chat — late
+   * joiners don't see prior lines (no history kept server-side). It carries no
+   * secrets (NPC status, presence) — safe to fan out to all clients in this app.
+   */
+  private serverLog(level: 'info' | 'warn' | 'error', text: string) {
+    if (level === 'warn') console.warn(text);
+    else if (level === 'error') console.error(text);
+    else console.log(text);
+    this.broadcast('server-log', { level, text });
+  }
+
+  /**
    * Deliver a chat line to everyone in `zone`, stamped `from` (a sessionId or the
    * NPC key). Extracted (F2a) so the human path and the NPC's own replies share ONE
    * delivery rule — an NPC has no WebSocket, so it cannot reuse the client's
@@ -162,13 +178,13 @@ export class OfficeRoom extends Room<{ state: OfficeState }> {
     // this message arrives over the wire.
     client.send('zones', ZONES);
 
-    console.log(`[office] + ${client.sessionId} joined (${this.clients.length} present)`);
+    this.serverLog('info', `➕ ${client.sessionId.slice(0, 6)} entró (${this.clients.length} presentes)`);
   }
 
   // A connection dropped. Remove its avatar → Colyseus emits "onRemove" to every
   // client (despawn the remote).
   onLeave(client: Client) {
     this.state.players.delete(client.sessionId);
-    console.log(`[office] - ${client.sessionId} left (${this.clients.length} present)`);
+    this.serverLog('info', `➖ ${client.sessionId.slice(0, 6)} salió (${this.clients.length} presentes)`);
   }
 }

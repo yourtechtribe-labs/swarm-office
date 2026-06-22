@@ -227,6 +227,13 @@ export class OfficeScene extends Scene {
       this.peers.get(msg.from)?.handleSignal(msg.data);
     });
 
+    // SERVER LOG: the server broadcasts its own events (NPC gateway/fallback,
+    // join/leave) so the UI can show what's happening. Pure relay onto the bus; the
+    // React <ServerLog> panel renders them. Like chat, these are transient (no history).
+    room.onMessage('server-log', (msg: { level: 'info' | 'warn' | 'error'; text: string }) =>
+      EventBus.emit('server-log', msg),
+    );
+
     // `$` is the schema-callbacks proxy: `$(stateObject)` returns an object whose
     // collection fields expose onAdd/onRemove and whose schema fields expose
     // listen/onChange. This is the Colyseus 0.17 / Schema v4 callbacks API.

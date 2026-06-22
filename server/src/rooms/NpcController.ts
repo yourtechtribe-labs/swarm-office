@@ -104,7 +104,16 @@ export class NpcController {
    *  gateway as context. Bounded to MAX_HISTORY. Not used by the scripted fallback. */
   private readonly history: ChatMessage[] = [];
 
-  constructor(private readonly state: OfficeState) {}
+  /**
+   * @param log sink for server events. OfficeRoom passes one that BOTH console.logs
+   *   (terminal) AND broadcasts a `server-log` message to clients (the in-UI panel),
+   *   so the same NPC events the operator reads in the terminal also surface in the
+   *   browser. Decoupled as a callback so the controller stays unaware of Colyseus.
+   */
+  constructor(
+    private readonly state: OfficeState,
+    private readonly log: (level: 'info' | 'warn', text: string) => void,
+  ) {}
 
   /** The synthetic state key of the NPC (so the room can stamp its chat lines). */
   readonly key = NPC_KEY;
@@ -137,7 +146,7 @@ export class NpcController {
     this.state.players.set(NPC_KEY, npc);
     this.npc = npc;
     this.pickNewTarget();
-    console.log(`[npc] spawned ${NPC_NAME} (${NPC_KEY}) in zone "${npc.zone}"`);
+    this.log('info', `🤖 ${NPC_NAME} entró en la oficina (zona "${npc.zone}")`);
   }
 
   /**
@@ -223,16 +232,18 @@ export class NpcController {
         try {
           // The gateway IS the brain (F2b): system persona + recent context. The
           // history already ends with this human line, so it's the prompt's last turn.
+          const t0 = Date.now();
           reply = await gatewayComplete([{ role: 'system', content: SYSTEM_PROMPT }, ...this.history]);
-          console.log(`[npc] gateway reply (${reply.length} chars)`);
+          this.log('info', `🧠 M.IA respondió vía LLM (${reply.length} chars, ${Date.now() - t0}ms)`);
         } catch (err) {
           // Graceful degradation: a gateway blip (timeout, network, non-2xx) must not
           // mute the NPC — fall back to the scripted line so it always answers.
-          console.warn(`[npc] gateway failed → scripted fallback: ${(err as Error).message}`);
+          this.log('warn', `⚠️ gateway falló → respuesta scripted: ${(err as Error).message}`);
           reply = scriptedReply(text);
         }
       } else {
         reply = scriptedReply(text);
+        this.log('info', '💬 M.IA respondió scripted (gateway no configurado)');
       }
       // Record the NPC's own line too, so the next turn has continuity.
       this.pushHistory('assistant', reply);

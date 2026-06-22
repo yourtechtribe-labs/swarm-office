@@ -66,6 +66,9 @@ export interface SwarmEvents {
   'voice-join': () => void;
   /** scene → React: voice status (joined, or an error such as denied mic). */
   'voice-state': (state: { joined: boolean; error?: string }) => void;
+  /** scene → React: a server-side event (NPC gateway/fallback, join/leave) for the
+   *  in-UI log panel. Transient, like chat — surfaces what the server is doing. */
+  'server-log': (msg: { level: 'info' | 'warn' | 'error'; text: string }) => void;
 }
 
 /** A typed view over Phaser's EventEmitter, constrained to `SwarmEvents`. */
