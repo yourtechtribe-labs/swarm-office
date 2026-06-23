@@ -282,12 +282,13 @@ export class ConversationManager {
       }
 
       const text = stripPass(result.text);
+      const sentinelPass = isPassText(result.text);
       // A PASS is: an explicit yield_turn, OR the [PASS] sentinel with no action, OR an
       // utterly empty turn (no text, no tool calls). A move (acted) or any speech breaks
       // the streak — it's a real contribution, not "nothing to add".
       const passed =
         yielded ||
-        (isPassText(result.text) && !acted) ||
+        (sentinelPass && !acted) ||
         (!text && !acted && result.toolCalls.length === 0);
 
       if (passed) {

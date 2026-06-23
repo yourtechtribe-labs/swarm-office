@@ -48,7 +48,7 @@ export type ToolCall = { id: string; name: string; args: Record<string, unknown>
 
 /** A full gateway reply (F4b). `content` is the assistant's text (can be `null` on a
  *  pure tool-call turn — confirmed live); `toolCalls` is empty unless the model called
- *  a tool. F4a's `gatewayComplete` is a thin wrapper that needs only `content`. */
+ *  a tool. */
 export type GatewayReply = { content: string | null; toolCalls: ToolCall[] };
 
 /** Hard cap on the reply length (tokens). A chat NPC says a line, not an essay —
@@ -173,15 +173,6 @@ export function gatewayChat(
     req.on('error', reject);
     req.write(payload);
     req.end();
-  });
-}
-
-/** F4a convenience: a plain text completion. Wraps gatewayChat and returns the text,
- *  rejecting if the model produced none (the F4a turn path always wants a line). */
-export function gatewayComplete(messages: ChatMessage[]): Promise<string> {
-  return gatewayChat(messages).then((reply) => {
-    if (!reply.content) throw new Error('gateway returned empty content');
-    return reply.content;
   });
 }
 

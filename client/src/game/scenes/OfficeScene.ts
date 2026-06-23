@@ -1,5 +1,5 @@
 import { Scene, Physics, Input, type Types } from 'phaser';
-import { EventBus } from '../EventBus';
+import { EventBus, type SwarmEvents } from '../EventBus';
 import {
   connectToOffice,
   getStateCallbacks,
@@ -131,7 +131,9 @@ export class OfficeScene extends Scene {
     // F4a — relay a parsed slash-command (/seed, /stop) to the server's `agent-cmd`
     // channel. Separate from chat so it never renders as a chat line; the server owns
     // the ConversationManager and validates again.
-    const onAgentCommand = (cmd: { kind: 'seed'; topic: string } | { kind: 'stop' }) =>
+    // Payload type derived from the bus contract (single source) so a new command kind
+    // can't drift between EventBus and this relay.
+    const onAgentCommand = (cmd: Parameters<SwarmEvents['agent-command']>[0]) =>
       this.room?.send('agent-cmd', cmd);
     const onChatFocus = (focused: boolean) => {
       this.chatFocused = focused;
