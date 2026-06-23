@@ -135,6 +135,10 @@ export class OfficeScene extends Scene {
     // can't drift between EventBus and this relay.
     const onAgentCommand = (cmd: Parameters<SwarmEvents['agent-command']>[0]) =>
       this.room?.send('agent-cmd', cmd);
+    // F6 — relay a workspace-explorer request to the room: list → `ws-list`, read →
+    // `ws-read` { path }. The office resolves the zone + proxies to the harness.
+    const onWsRequest = (req: Parameters<SwarmEvents['ws-request']>[0]) =>
+      this.room?.send(req.action === 'list' ? 'ws-list' : 'ws-read', req.action === 'read' ? { path: req.path } : {});
     const onChatFocus = (focused: boolean) => {
       this.chatFocused = focused;
       const kb = this.input.keyboard!;
@@ -182,11 +186,13 @@ export class OfficeScene extends Scene {
 
     EventBus.on('chat-send', onChatSend);
     EventBus.on('agent-command', onAgentCommand);
+    EventBus.on('ws-request', onWsRequest);
     EventBus.on('chat-focus', onChatFocus);
     EventBus.on('voice-join', onVoiceJoin);
     this.events.once('shutdown', () => {
       EventBus.off('chat-send', onChatSend);
       EventBus.off('agent-command', onAgentCommand);
+      EventBus.off('ws-request', onWsRequest);
       EventBus.off('chat-focus', onChatFocus);
       EventBus.off('voice-join', onVoiceJoin);
       // Tear down all peer connections + stop the mic on scene teardown
@@ -242,6 +248,12 @@ export class OfficeScene extends Scene {
     room.onMessage('server-log', (msg: { level: 'info' | 'warn' | 'error'; text: string }) =>
       EventBus.emit('server-log', msg),
     );
+
+    // F6 — relay the workspace-explorer responses + the change push onto the bus, where the
+    // React <Files> panel consumes them. Pure relays, same shape as server-log.
+    room.onMessage('ws-files', (msg: Parameters<SwarmEvents['ws-files']>[0]) => EventBus.emit('ws-files', msg));
+    room.onMessage('ws-file', (msg: Parameters<SwarmEvents['ws-file']>[0]) => EventBus.emit('ws-file', msg));
+    room.onMessage('ws-changed', (msg: Parameters<SwarmEvents['ws-changed']>[0]) => EventBus.emit('ws-changed', msg));
 
     // `$` is the schema-callbacks proxy: `$(stateObject)` returns an object whose
     // collection fields expose onAdd/onRemove and whose schema fields expose

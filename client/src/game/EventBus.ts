@@ -76,6 +76,15 @@ export interface SwarmEvents {
   /** scene → React: a server-side event (NPC gateway/fallback, join/leave) for the
    *  in-UI log panel. Transient, like chat — surfaces what the server is doing. */
   'server-log': (msg: { level: 'info' | 'warn' | 'error'; text: string }) => void;
+  /** F6 — workspace explorer. React → scene: ask for the file list, or one file's content.
+   *  The scene relays it to the room (ws-list / ws-read); the office proxies to the harness. */
+  'ws-request': (req: { action: 'list' } | { action: 'read'; path: string }) => void;
+  /** scene → React: the current zone's workspace listing, or an error (harness down, etc.). */
+  'ws-files': (msg: { files: string[] } | { error: string }) => void;
+  /** scene → React: one file's content (clipped when `truncated`), or an error. */
+  'ws-file': (msg: { path: string; content: string; truncated: boolean } | { error: string }) => void;
+  /** scene → React: a work turn changed files in a zone → the panel should re-list. */
+  'ws-changed': (msg: { zone: string }) => void;
 }
 
 /** A typed view over Phaser's EventEmitter, constrained to `SwarmEvents`. */

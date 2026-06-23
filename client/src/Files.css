@@ -1,0 +1,133 @@
+/* Right-docked explorer. HUD is top-left, Join voice top-right, chat bottom-left, server
+   log bottom-right — so this sits on the right edge, below the voice controls, as a tall
+   panel. Same dark translucent language as the other panels. */
+.files {
+  position: fixed;
+  right: 12px;
+  top: 96px;
+  width: 320px;
+  max-width: 42vw;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font:
+    12px/1.4 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
+  z-index: 10;
+}
+
+.files__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  border: none;
+  border-radius: 8px;
+  background: rgba(13, 20, 28, 0.82);
+  color: #8aa0b4;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.files__count {
+  margin-left: auto;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #e6edf3;
+}
+
+.files__chevron {
+  color: #4fd1c5;
+}
+
+.files__body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border-radius: 10px;
+  background: rgba(13, 20, 28, 0.72);
+  backdrop-filter: blur(4px);
+  color: #cdd9e5;
+}
+
+/* The tree: a scrollable column of file buttons. */
+.files__tree {
+  max-height: 26vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.files__item {
+  border: none;
+  background: transparent;
+  color: #cdd9e5;
+  font: inherit;
+  text-align: left;
+  padding: 3px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.files__item:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.files__item--sel {
+  background: rgba(79, 209, 197, 0.16);
+  color: #e6edf3;
+}
+
+.files__empty {
+  color: #5b6b7b;
+  font-style: italic;
+  padding: 4px 6px;
+}
+
+.files__error {
+  color: #fc8181;
+  padding: 4px 6px;
+}
+
+/* The viewer: a monospace dump of the selected file, scrollable + bounded. */
+.files__viewer {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  padding-top: 6px;
+}
+
+.files__viewer-head {
+  color: #8aa0b4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.files__trunc {
+  color: #f6ad55;
+}
+
+.files__content {
+  margin: 0;
+  max-height: 34vh;
+  overflow: auto;
+  padding: 8px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.32);
+  color: #e6edf3;
+  white-space: pre-wrap;
+  word-break: break-word;
+}

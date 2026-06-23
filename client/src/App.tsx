@@ -4,6 +4,7 @@ import { EventBus } from './game/EventBus';
 import { Chat } from './Chat';
 import { VoiceControls } from './VoiceControls';
 import { ServerLog } from './ServerLog';
+import { Files } from './Files';
 import './App.css';
 
 /**
@@ -61,6 +62,7 @@ function App() {
       <VoiceControls />
       <Chat />
       <ServerLog />
+      <Files />
     </div>
   );
 }
