@@ -51,6 +51,11 @@ export type ToolContext = {
 /** The tool name the manager interprets as a PASS (handled there, not executed here). */
 export const YIELD_TURN = 'yield_turn';
 
+/** The tool an agent calls to DO real work (F5): the manager handles it specially —
+ *  it delegates to the predicta-harness work service (a sandboxed ReAct loop), not to
+ *  `executeToolCall`. The agent states its own free-form `goal` (emergent agency). */
+export const DO_WORK = 'do_work';
+
 /** The OpenAI-shaped definitions sent to the gateway as `tools`. Kept minimal for v1
  *  (spec §4.7/§8). Descriptions are in Spanish to match the agents' register. */
 export const TOOL_DEFS: ToolDef[] = [
@@ -80,6 +85,21 @@ export const TOOL_DEFS: ToolDef[] = [
       name: YIELD_TURN,
       description: 'Cede el turno: no tienes nada más que añadir o estás de acuerdo en que el tema está resuelto.',
       parameters: { type: 'object', properties: {} },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: DO_WORK,
+      description:
+        'Realiza una tarea de trabajo REAL en el espacio compartido: escribir y ejecutar ' +
+        'código, generar ficheros, calcular resultados. Úsalo cuando el equipo haya decidido ' +
+        'algo que hay que HACER de verdad, no solo hablarlo. Indica el OBJETIVO en una frase.',
+      parameters: {
+        type: 'object',
+        properties: { goal: { type: 'string', description: 'qué hay que conseguir, en una frase' } },
+        required: ['goal'],
+      },
     },
   },
 ];

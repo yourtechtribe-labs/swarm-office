@@ -4,6 +4,7 @@ import { Player } from './schema/Player';
 import { ZONES, zoneAt } from './zones';
 import { NpcController } from './NpcController';
 import { ConversationManager } from './ConversationManager';
+import { makeWorkClient } from './workClient';
 import { ROSTER } from '../agents/roster';
 
 /** Spawn point — matches the client world centre (WORLD_W/2, WORLD_H/2). */
@@ -67,12 +68,21 @@ export class OfficeRoom extends Room<{ state: OfficeState }> {
     // call ever) over a shared transcript, and reaches humans via the SAME zone-scoped
     // delivery as chat. It only reads key + currentZone from each body (the AgentBody
     // contract), so it never touches Colyseus directly.
+    // F5 — if a harness work service is configured (HARNESS_URL), agents can DO real work
+    // (the `do_work` tool delegates to a sandboxed ReAct loop). Without it, do_work degrades
+    // to a chat line and the office still runs (R6). The model + per-zone workspace are env.
+    const harnessUrl = process.env.HARNESS_URL?.trim();
+    const workWsRoot = process.env.WORK_WS_ROOT?.trim() || '/tmp/office-ws';
+
     this.conversation = new ConversationManager({
       roster: ROSTER,
       bodies: this.npcs,
       broadcastChat: (zone, from, text) => this.broadcastChatToZone(zone, from, text),
       log: (level, text) => this.serverLog(level, text),
       turnDelayMs: 700, // a readable pace between turns (the probe uses 0)
+      workClient: harnessUrl ? makeWorkClient(harnessUrl) : undefined,
+      workModel: process.env.WORK_MODEL?.trim() || '',
+      zoneWorkspace: (zone) => `${workWsRoot}/${zone || 'lobby'}`,
     });
 
     // The ONE server simulation tick (see NpcController's class comment): drive every

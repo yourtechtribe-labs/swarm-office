@@ -1,6 +1,7 @@
 import { gatewayConfigured, gatewayChat, type ChatMessage } from './miaGateway';
 import type { AgentConfig } from '../agents/roster';
-import { TOOL_DEFS, YIELD_TURN, executeToolCall, type AgentBody, type ToolContext } from './tools';
+import { TOOL_DEFS, YIELD_TURN, DO_WORK, executeToolCall, type AgentBody, type ToolContext } from './tools';
+import type { WorkClient } from './workClient';
 
 // Re-export the body contract so callers (and the probe) get it from the manager, even
 // though it's DEFINED in tools.ts (where the tool handlers operate on it).
@@ -99,6 +100,14 @@ type ManagerOpts = {
   /** F4b: offer the move/yield_turn tools to the live model. Default true. (The live
    *  engine only; the scripted/injected engines ignore it.) */
   enableTools?: boolean;
+  /** F5: the bridge to the harness work service. If set, agents can call `do_work` and
+   *  the manager runs a sandboxed work turn. If absent, a `do_work` call degrades to a
+   *  chat line (the office still works without the service). Injected so the probe stubs it. */
+  workClient?: WorkClient;
+  /** F5: the model id the harness uses for the work loop (e.g. "vllm/Modelo-bXs2"). */
+  workModel?: string;
+  /** F5: zone id → workspace path the harness writes to (the shared "repo" of that zone). */
+  zoneWorkspace?: (zone: string) => string;
 };
 
 /** Tolerant [PASS]-sentinel detection (F4a path): Qwen may wrap it ("de acuerdo,
@@ -137,6 +146,12 @@ export class ConversationManager {
   private readonly runawayCap: number;
   private readonly turnDelayMs: number;
   private readonly toolsEnabled: boolean;
+  /** F5 — the work bridge + its config; absent ⇒ do_work degrades to a chat line. */
+  private readonly workClient?: WorkClient;
+  private readonly workModel: string;
+  private readonly zoneWorkspace: (zone: string) => string;
+  /** Abort handle for an in-flight work turn (so a human STOP tears it down). */
+  private workAbort?: AbortController;
 
   /** The single in-progress round, if any. The shared transcript IS the round state. */
   private transcript: TranscriptEntry[] = [];
@@ -160,6 +175,9 @@ export class ConversationManager {
     this.runawayCap = opts.runawayCap ?? 30;
     this.turnDelayMs = opts.turnDelayMs ?? 0;
     this.toolsEnabled = opts.enableTools ?? true;
+    this.workClient = opts.workClient;
+    this.workModel = opts.workModel ?? '';
+    this.zoneWorkspace = opts.zoneWorkspace ?? ((zone) => `/tmp/office-ws/${zone}`);
     // Pick the turn source ONCE: an explicit override (probe/test) wins; otherwise the
     // live gateway if it's configured, else the scripted fallback (off-VPN runtime).
     this.engine =
@@ -246,6 +264,7 @@ export class ConversationManager {
   stop(): void {
     if (!this.running) return;
     this.stopped = true;
+    this.workAbort?.abort(); // tear down an in-flight work turn (F5)
     this.log('info', '⏹ STOP: ronda detenida por un humano');
   }
 
@@ -266,6 +285,20 @@ export class ConversationManager {
       const result = await this.engine(agent, this.transcript, 'turn');
       turnIndex++;
       const roundMs = Date.now() - roundStart;
+
+      // F5 — if the agent decided to DO work, this turn IS the work turn: delegate the
+      // goal to the harness (a sandboxed ReAct loop), stream its tool-calls to the log,
+      // and the work summary becomes the agent's spoken line. Doing work is a real
+      // contribution, so it resets the pass streak. (Handled before the F4b sync tools.)
+      const workCall = result.toolCalls.find((c) => c.name === DO_WORK);
+      if (workCall) {
+        consecutivePasses = 0;
+        await this.runWorkTurn(agent, String(workCall.args.goal ?? ''), turnIndex);
+        lastSpeaker = agent;
+        if (this.stopped) break;
+        if (this.turnDelayMs > 0) await delay(this.turnDelayMs);
+        continue;
+      }
 
       // F4b — a turn may carry tool calls. `yield_turn` is a PASS SIGNAL (not executed);
       // every other call (move) runs single-step against the world, server-side.
@@ -337,6 +370,41 @@ export class ConversationManager {
    *  can resolve "toward:<agentKey>" and call moveToZone on the right body). */
   private toolContext(agentKey: string): ToolContext {
     return { agentKey, bodies: this.bodies };
+  }
+
+  /**
+   * F5 — run ONE work turn: the agent's `do_work(goal)` is delegated to the harness work
+   * service (a sandboxed ReAct loop). Each executed sandbox tool streams to the server-log
+   * as it happens; the final summary becomes the agent's spoken line (and joins the
+   * transcript, so the next turn can discuss the result). If the service is absent or
+   * unreachable, we DEGRADE to a chat line (spec R6) — the round never crashes.
+   */
+  private async runWorkTurn(agent: AgentConfig, goal: string, turnIndex: number): Promise<void> {
+    this.log('info', `🛠 turn ${turnIndex} · ${agent.name} se pone a trabajar: "${goal.slice(0, 60)}"`);
+    if (!this.workClient) {
+      this.broadcastChat(this.zone, agent.key, 'Quería ponerme a trabajar, pero no hay servicio de trabajo configurado.');
+      return;
+    }
+    this.workAbort = new AbortController();
+    const res = await this.workClient(
+      { agentKey: agent.key, goal, workspace: this.zoneWorkspace(this.zone), model: this.workModel },
+      (e) => {
+        if (e.kind === 'tool') this.log('info', `   🔧 ${e.name}: ${e.output.replace(/\s+/g, ' ').slice(0, 120)}`);
+        else if (e.kind === 'error') this.log('warn', `   ⚠️ trabajo: ${e.message}`);
+      },
+      this.workAbort.signal,
+    );
+    this.workAbort = undefined;
+
+    if (!res) {
+      // Transport failure / aborted / no result → degrade, keep the round alive (R6).
+      this.broadcastChat(this.zone, agent.key, 'No he podido completar el trabajo ahora mismo.');
+      return;
+    }
+    const line = res.summary.trim()
+      || `He terminado. Ficheros: ${res.files.length ? res.files.join(', ') : '(ninguno)'}.`;
+    this.transcript.push({ from: agent.key, name: agent.name, text: line });
+    this.broadcastChat(this.zone, agent.key, line);
   }
 
   /** LIVE turn: the gateway IS the brain. System = persona + the turn/conclusion
