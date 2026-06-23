@@ -1,40 +1,35 @@
-/* Right-docked explorer. HUD is top-left, Join voice top-right, chat bottom-left, server
-   log bottom-right — so this sits on the right edge, below the voice controls, as a tall
-   panel. Same dark translucent language as the other panels. */
-.files {
+/* Top-right MENU, just below "Join voice" (top:12/right:12) — same dark language as the
+   other panels. The dropdown hangs under the button; the file viewer is a centered popup. */
+.wsmenu {
   position: fixed;
+  top: 56px;
   right: 12px;
-  top: 96px;
-  width: 320px;
-  max-width: 42vw;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+  width: 280px;
+  max-width: 46vw;
+  z-index: 11;
   font:
     12px/1.4 ui-monospace,
     SFMono-Regular,
     Menlo,
     monospace;
-  z-index: 10;
 }
 
-.files__head {
+.wsmenu__btn {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 5px 10px;
+  width: 100%;
+  padding: 6px 10px;
   border: none;
   border-radius: 8px;
   background: rgba(13, 20, 28, 0.82);
-  color: #8aa0b4;
+  color: #cdd9e5;
   cursor: pointer;
   text-align: left;
   font: inherit;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
 }
 
-.files__count {
+.wsmenu__count {
   margin-left: auto;
   padding: 0 6px;
   border-radius: 999px;
@@ -42,37 +37,30 @@
   color: #e6edf3;
 }
 
-.files__chevron {
+.wsmenu__chevron {
   color: #4fd1c5;
 }
 
-.files__body {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 8px;
-  border-radius: 10px;
-  background: rgba(13, 20, 28, 0.72);
-  backdrop-filter: blur(4px);
-  color: #cdd9e5;
-}
-
-/* The tree: a scrollable column of file buttons. */
-.files__tree {
-  max-height: 26vh;
+.wsmenu__drop {
+  margin-top: 4px;
+  max-height: 50vh;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 1px;
+  padding: 6px;
+  border-radius: 10px;
+  background: rgba(13, 20, 28, 0.92);
+  backdrop-filter: blur(4px);
 }
 
-.files__item {
+.wsmenu__item {
   border: none;
   background: transparent;
   color: #cdd9e5;
   font: inherit;
   text-align: left;
-  padding: 3px 6px;
+  padding: 4px 8px;
   border-radius: 6px;
   cursor: pointer;
   white-space: nowrap;
@@ -80,54 +68,169 @@
   text-overflow: ellipsis;
 }
 
-.files__item:hover {
-  background: rgba(255, 255, 255, 0.06);
-}
-
-.files__item--sel {
+.wsmenu__item:hover {
   background: rgba(79, 209, 197, 0.16);
   color: #e6edf3;
 }
 
-.files__empty {
+.wsmenu__empty {
   color: #5b6b7b;
   font-style: italic;
-  padding: 4px 6px;
+  padding: 4px 8px;
 }
 
-.files__error {
+.wsmenu__error {
   color: #fc8181;
-  padding: 4px 6px;
+  padding: 4px 8px;
 }
 
-/* The viewer: a monospace dump of the selected file, scrollable + bounded. */
-.files__viewer {
+/* ── Popup viewer ─────────────────────────────────────────────────────────── */
+.wsmodal {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(2px);
+}
+
+.wsmodal__card {
+  width: 80vw;
+  max-width: 880px;
+  max-height: 86vh;
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
-  padding-top: 6px;
+  border-radius: 12px;
+  background: #0f1722;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
 }
 
-.files__viewer-head {
+.wsmodal__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  font:
+    12px/1.4 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
+}
+
+.wsmodal__title {
   color: #8aa0b4;
-  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.files__trunc {
+.wsmodal__trunc {
   color: #f6ad55;
 }
 
-.files__content {
-  margin: 0;
-  max-height: 34vh;
-  overflow: auto;
-  padding: 8px;
-  border-radius: 8px;
-  background: rgba(0, 0, 0, 0.32);
+.wsmodal__close {
+  margin-left: auto;
+  border: none;
+  background: transparent;
+  color: #8aa0b4;
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+}
+
+.wsmodal__close:hover {
   color: #e6edf3;
+}
+
+.wsmodal__body {
+  overflow: auto;
+  padding: 16px 20px;
+  color: #e6edf3;
+}
+
+.wsmodal__loading {
+  color: #5b6b7b;
+  font-style: italic;
+}
+
+/* Raw (code) view: monospace, preserves whitespace. */
+.wsmodal__pre {
+  margin: 0;
   white-space: pre-wrap;
   word-break: break-word;
+  font:
+    12.5px/1.5 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
+}
+
+/* FORMATTED markdown: readable prose typography for the rendered HTML. */
+.wsmodal__md {
+  font: 14px/1.6 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+}
+.wsmodal__md h1,
+.wsmodal__md h2,
+.wsmodal__md h3 {
+  color: #fff;
+  line-height: 1.25;
+  margin: 1.1em 0 0.5em;
+}
+.wsmodal__md h1 {
+  font-size: 1.6em;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  padding-bottom: 0.3em;
+}
+.wsmodal__md h2 {
+  font-size: 1.3em;
+}
+.wsmodal__md h3 {
+  font-size: 1.1em;
+}
+.wsmodal__md p,
+.wsmodal__md li {
+  color: #cdd9e5;
+}
+.wsmodal__md a {
+  color: #4fd1c5;
+}
+.wsmodal__md code {
+  background: rgba(255, 255, 255, 0.08);
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+  font: 0.9em ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.wsmodal__md pre {
+  background: rgba(0, 0, 0, 0.35);
+  padding: 12px;
+  border-radius: 8px;
+  overflow: auto;
+}
+.wsmodal__md pre code {
+  background: none;
+  padding: 0;
+}
+.wsmodal__md blockquote {
+  margin: 0.8em 0;
+  padding-left: 12px;
+  border-left: 3px solid rgba(79, 209, 197, 0.5);
+  color: #8aa0b4;
+}
+.wsmodal__md table {
+  border-collapse: collapse;
+  margin: 0.8em 0;
+  width: 100%;
+}
+.wsmodal__md th,
+.wsmodal__md td {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  padding: 6px 10px;
+  text-align: left;
+}
+.wsmodal__md th {
+  background: rgba(255, 255, 255, 0.05);
 }
