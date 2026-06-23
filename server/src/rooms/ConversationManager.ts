@@ -110,15 +110,17 @@ type ManagerOpts = {
   zoneWorkspace?: (zone: string) => string;
 };
 
-/** Tolerant [PASS]-sentinel detection (F4a path): Qwen may wrap it ("de acuerdo,
- *  [PASS]"), so we match the token anywhere, case-insensitively. In F4b a PASS can also
- *  come as a `yield_turn` tool call; runRound combines both signals. */
+/** Tolerant pass-sentinel detection. The model signals "nothing to add" two ways that we
+ *  must catch as TEXT (it doesn't always use the structured tool): `[PASS]` (F4a sentinel)
+ *  and `[yield_turn]` (the F4b tool emitted as text — observed live causing a runaway when
+ *  unrecognized). Matched anywhere, case-insensitively, tolerating a space in "yield turn". */
+const PASS_RE = /\[\s*(?:PASS|yield[ _]?turn)\s*\]/i;
 function isPassText(raw: string | null): boolean {
-  return !!raw && /\[PASS\]/i.test(raw);
+  return !!raw && PASS_RE.test(raw);
 }
-/** Strip the sentinel from anything we broadcast (a PASS turn shows nothing). */
+/** Strip the sentinel(s) from anything we broadcast (a PASS turn shows nothing). */
 function stripPass(raw: string | null): string {
-  return (raw ?? '').replace(/\[PASS\]/gi, '').trim();
+  return (raw ?? '').replace(/\[\s*(?:PASS|yield[ _]?turn)\s*\]/gi, '').trim();
 }
 
 /** Appended to a live agent's persona on a normal turn: how to contribute, and how to
@@ -401,8 +403,14 @@ export class ConversationManager {
       this.broadcastChat(this.zone, agent.key, 'No he podido completar el trabajo ahora mismo.');
       return;
     }
-    const line = res.summary.trim()
-      || `He terminado. Ficheros: ${res.files.length ? res.files.join(', ') : '(ninguno)'}.`;
+    let line = res.summary.trim();
+    // The harness returns an internal "[predicta-harness] max_steps reached…" string when
+    // the work loop runs out of steps. Don't leak that into the chat as if the agent said
+    // it — replace it with a graceful line that still surfaces any files produced.
+    if (!line || /^\[predicta-harness\]/.test(line)) {
+      const files = res.files.length ? ` (ficheros: ${res.files.join(', ')})` : '';
+      line = `He avanzado en la tarea${files}, pero no la he terminado del todo.`;
+    }
     this.transcript.push({ from: agent.key, name: agent.name, text: line });
     this.broadcastChat(this.zone, agent.key, line);
   }
