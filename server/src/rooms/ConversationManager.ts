@@ -404,10 +404,9 @@ export class ConversationManager {
       return;
     }
     let line = res.summary.trim();
-    // The harness returns an internal "[predicta-harness] max_steps reached…" string when
-    // the work loop runs out of steps. Don't leak that into the chat as if the agent said
-    // it — replace it with a graceful line that still surfaces any files produced.
-    if (!line || /^\[predicta-harness\]/.test(line)) {
+    // STRUCTURED signal (not text-grepping): if the work hit the step cap (didn't finish)
+    // or produced no summary, surface a graceful line that still shows any files produced.
+    if (res.stopReason === 'max_steps' || !line) {
       const files = res.files.length ? ` (ficheros: ${res.files.join(', ')})` : '';
       line = `He avanzado en la tarea${files}, pero no la he terminado del todo.`;
     }

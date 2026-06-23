@@ -19,17 +19,21 @@ import http from 'node:http';
 
 export type WorkEvent =
   | { kind: 'tool'; name: string; input: unknown; output: string }
-  | { kind: 'done'; summary: string; files: string[]; steps: number }
+  // stopReason is the harness's STRUCTURED termination signal ("end_turn" | "max_steps"),
+  // so callers never have to grep the summary text to know if the work finished.
+  | { kind: 'done'; summary: string; files: string[]; steps: number; stopReason: string }
   | { kind: 'error'; message: string };
 
 export type WorkRequest = { agentKey: string; goal: string; workspace: string; model: string };
+
+export type WorkResult = { summary: string; files: string[]; stopReason: string };
 
 /** Resolves with the final result, or `null` on transport failure (→ the manager degrades). */
 export type WorkClient = (
   req: WorkRequest,
   onEvent: (e: WorkEvent) => void,
   signal?: AbortSignal,
-) => Promise<{ summary: string; files: string[] } | null>;
+) => Promise<WorkResult | null>;
 
 /** Build a WorkClient pointed at the harness base URL (e.g. http://127.0.0.1:8088). */
 export function makeWorkClient(baseUrl: string): WorkClient {
@@ -37,7 +41,7 @@ export function makeWorkClient(baseUrl: string): WorkClient {
     new Promise((resolve) => {
       const url = new URL('/work', baseUrl);
       const payload = JSON.stringify(req);
-      let done: { summary: string; files: string[] } | null = null;
+      let done: WorkResult | null = null;
       let buf = '';
 
       const request = http.request(
@@ -59,7 +63,7 @@ export function makeWorkClient(baseUrl: string): WorkClient {
               buf = buf.slice(sep + 2);
               const ev = parseBlock(block);
               if (!ev) continue;
-              if (ev.kind === 'done') done = { summary: ev.summary, files: ev.files };
+              if (ev.kind === 'done') done = { summary: ev.summary, files: ev.files, stopReason: ev.stopReason };
               onEvent(ev);
             }
           });
@@ -86,7 +90,7 @@ function parseBlock(block: string): WorkEvent | null {
   try {
     const d = JSON.parse(data);
     if (event === 'tool') return { kind: 'tool', name: d.name, input: d.input, output: String(d.output ?? '') };
-    if (event === 'done') return { kind: 'done', summary: d.summary ?? '', files: d.files ?? [], steps: d.steps ?? 0 };
+    if (event === 'done') return { kind: 'done', summary: d.summary ?? '', files: d.files ?? [], steps: d.steps ?? 0, stopReason: d.stop_reason ?? 'end_turn' };
     if (event === 'error') return { kind: 'error', message: d.message ?? 'unknown error' };
   } catch {
     /* ignore a malformed block */

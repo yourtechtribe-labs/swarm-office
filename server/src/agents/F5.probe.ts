@@ -54,7 +54,7 @@ async function scenarioSuccess(): Promise<void> {
     lastReq = req;
     onEvent({ kind: 'tool', name: 'write_file', input: { path: 'fib.py' }, output: 'wrote 40 bytes to fib.py' });
     onEvent({ kind: 'tool', name: 'run_code', input: {}, output: '0 1 1 2 3' });
-    return { summary: 'Hecho: fib.py calcula la secuencia (probado, da 0 1 1 2 3).', files: ['fib.py'] };
+    return { summary: 'Hecho: fib.py calcula la secuencia (probado, da 0 1 1 2 3).', files: ['fib.py'], stopReason: 'end_turn' };
   };
   const cm = new ConversationManager({
     roster: ROSTER, bodies: lobbyBodies(),
@@ -108,11 +108,36 @@ async function scenarioNoService(): Promise<void> {
   console.log('  ✓ no-service: do_work degrades to an explanatory line');
 }
 
+async function scenarioIncomplete(): Promise<void> {
+  // STRUCTURED signal: the work hit the step cap (stopReason='max_steps'). The office must
+  // surface a graceful line (still showing files), NOT the raw summary — and never grep text.
+  const lines: { from: string; text: string }[] = [];
+  const workClient: WorkClient = async () => ({
+    summary: 'partial internal text that should NOT be shown verbatim',
+    files: ['draft.md'],
+    stopReason: 'max_steps',
+  });
+  const cm = new ConversationManager({
+    roster: ROSTER, bodies: lobbyBodies(),
+    broadcastChat: (_z, from, text) => lines.push({ from, text }),
+    log: () => {},
+    turnEngine: workThenPass(), workClient, turnDelayMs: 0,
+  });
+  cm.seed('lobby', 'tarea larga', 'Albert');
+  await cm.settled();
+  const agentLine = lines.find((l) => l.from.startsWith('npc:'));
+  assert(/no la he terminado del todo/.test(agentLine?.text ?? ''), 'max_steps → graceful incomplete line');
+  assert(/draft\.md/.test(agentLine?.text ?? ''), 'incomplete line still surfaces the files produced');
+  assert(!/partial internal text/.test(agentLine?.text ?? ''), 'the raw summary is NOT shown on an incomplete turn');
+  console.log('  ✓ incomplete: stopReason=max_steps → graceful line (structured, not text-grep)');
+}
+
 async function main(): Promise<void> {
   console.log('F5 probe — work turns (do_work → harness)');
   await scenarioSuccess();
   await scenarioDegrade();
   await scenarioNoService();
+  await scenarioIncomplete();
   console.log(`\n✅ F5 probe passed (${checks} assertions)`);
 }
 
