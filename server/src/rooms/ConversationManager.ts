@@ -113,6 +113,9 @@ type ManagerOpts = {
   workModel?: string;
   /** F5: zone id → workspace path the harness writes to (the shared "repo" of that zone). */
   zoneWorkspace?: (zone: string) => string;
+  /** F6: called after a work turn changes files, so the room can tell clients to refresh
+   *  the explorer tree (push, not poll). Optional — the office injects a broadcast. */
+  onWorkspaceChanged?: (zone: string) => void;
 };
 
 /** Tolerant pass-sentinel detection. The model signals "nothing to add" two ways that we
@@ -163,6 +166,7 @@ export class ConversationManager {
   private readonly workClient?: WorkClient;
   private readonly workModel: string;
   private readonly zoneWorkspace: (zone: string) => string;
+  private readonly onWorkspaceChanged?: (zone: string) => void;
   /** Abort handle for an in-flight work turn (so a human STOP tears it down). */
   private workAbort?: AbortController;
 
@@ -194,6 +198,7 @@ export class ConversationManager {
     this.workClient = opts.workClient;
     this.workModel = opts.workModel ?? '';
     this.zoneWorkspace = opts.zoneWorkspace ?? ((zone) => `/tmp/office-ws/${zone}`);
+    this.onWorkspaceChanged = opts.onWorkspaceChanged;
     // Pick the turn source ONCE: an explicit override (probe/test) wins; otherwise the
     // live gateway if it's configured, else the scripted fallback (off-VPN runtime).
     this.engine =
@@ -448,6 +453,9 @@ export class ConversationManager {
     }
     this.transcript.push({ from: agent.key, name: agent.name, text: line });
     this.broadcastChat(this.zone, agent.key, line);
+    // F6 — the work turn wrote/edited files in this zone's workspace; nudge clients to
+    // refresh the explorer tree (push beats polling: we know exactly when it changed).
+    this.onWorkspaceChanged?.(this.zone);
   }
 
   /** LIVE turn: the gateway IS the brain. System = persona + the turn/conclusion

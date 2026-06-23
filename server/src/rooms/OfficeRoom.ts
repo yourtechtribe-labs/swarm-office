@@ -5,6 +5,7 @@ import { ZONES, zoneAt } from './zones';
 import { NpcController } from './NpcController';
 import { ConversationManager } from './ConversationManager';
 import { makeWorkClient } from './workClient';
+import { makeWorkspaceClient } from './workspaceClient';
 import { ROSTER } from '../agents/roster';
 
 /** Spawn point — matches the client world centre (WORLD_W/2, WORLD_H/2). */
@@ -73,6 +74,11 @@ export class OfficeRoom extends Room<{ state: OfficeState }> {
     // to a chat line and the office still runs (R6). The model + per-zone workspace are env.
     const harnessUrl = process.env.HARNESS_URL?.trim();
     const workWsRoot = process.env.WORK_WS_ROOT?.trim() || '/tmp/office-ws';
+    // One place maps a zone to its workspace dir — used both to RUN work (below) and to
+    // BROWSE it (F6 proxy handlers). Keeping it single-source avoids the two drifting.
+    const zoneWorkspace = (zone: string) => `${workWsRoot}/${zone || 'lobby'}`;
+    // F6 — read-only browsing of that same per-zone workspace, proxied to the harness.
+    const wsClient = harnessUrl ? makeWorkspaceClient(harnessUrl) : undefined;
 
     this.conversation = new ConversationManager({
       roster: ROSTER,
@@ -87,7 +93,9 @@ export class OfficeRoom extends Room<{ state: OfficeState }> {
       noProgressCap: process.env.NO_PROGRESS_CAP !== undefined ? Number(process.env.NO_PROGRESS_CAP) : undefined,
       workClient: harnessUrl ? makeWorkClient(harnessUrl) : undefined,
       workModel: process.env.WORK_MODEL?.trim() || '',
-      zoneWorkspace: (zone) => `${workWsRoot}/${zone || 'lobby'}`,
+      zoneWorkspace,
+      // F6 — a work turn just changed files on disk; tell every client to refresh its tree.
+      onWorkspaceChanged: (zone) => this.broadcast('ws-changed', { zone }),
     });
 
     // The ONE server simulation tick (see NpcController's class comment): drive every
@@ -173,6 +181,23 @@ export class OfficeRoom extends Room<{ state: OfficeState }> {
       // list (same O(n) scan we'd write by hand, but it's the framework's named API).
       const target = this.clients.getById(data.to);
       target?.send('signal', { from: client.sessionId, data: data.data });
+    });
+
+    // F6 — WORKSPACE EXPLORER proxy. The browser asks for the listing / a file's content;
+    // the office forwards to the harness (single trust boundary; the browser never reaches
+    // it). The zone is the requesting player's AUTHORITATIVE zone (server state), never a
+    // client-supplied one — so a client can only browse the workspace of where it actually
+    // is. Read-only: there is no ws-write/ws-delete. Errors flow back as `{ error }`.
+    this.onMessage('ws-list', async (client) => {
+      const zone = this.state.players.get(client.sessionId)?.zone ?? 'lobby';
+      const res = wsClient ? await wsClient.list(zoneWorkspace(zone)) : { error: 'sin harness configurado' };
+      client.send('ws-files', res);
+    });
+    this.onMessage('ws-read', async (client, data: { path?: unknown }) => {
+      if (typeof data?.path !== 'string') return; // validate on the server (security boundary)
+      const zone = this.state.players.get(client.sessionId)?.zone ?? 'lobby';
+      const res = wsClient ? await wsClient.read(zoneWorkspace(zone), data.path) : { error: 'sin harness configurado' };
+      client.send('ws-file', res);
     });
   }
 
