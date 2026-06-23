@@ -124,12 +124,17 @@ function stripPass(raw: string | null): string {
   return (raw ?? '').replace(/\[\s*(?:PASS|yield[ _]?turn)\s*\]/gi, '').trim();
 }
 
-/** Appended to a live agent's persona on a normal turn: how to contribute, and how to
- *  PASS. Kept here (not in the persona) so personas stay about identity, not protocol. */
+/** Appended to a live agent's persona on a normal turn. CRITICAL convention (fixes a real
+ *  bug where the model wrote "[MOVE]" / "do_work: …" / "[yield_turn]" as TEXT instead of
+ *  calling the tool): actions go through the STRUCTURED tools, the text is only for talking.
+ *  Kept here (not in the persona) so personas stay about identity, not protocol. */
 const TURN_PROTOCOL =
-  'Es tu turno. Aporta UNA sola frase al debate con tus compañeros. ' +
-  'Si no tienes nada que añadir o estás de acuerdo en que el tema ya está resuelto, ' +
-  'responde EXACTAMENTE [PASS] y nada más.';
+  'Es tu turno. Para MOVERTE por la oficina o REALIZAR una tarea de trabajo (escribir/' +
+  'ejecutar código, generar ficheros), DEBES llamar a la herramienta correspondiente ' +
+  '(move / do_work). NUNCA escribas la acción como texto (nada de "[MOVE]", "do_work: ...", ' +
+  '"move(...)"): el texto es SOLO para una frase de conversación con tus compañeros. ' +
+  'Si no tienes nada que añadir o el tema está resuelto, llama a la herramienta yield_turn ' +
+  '(o, si no, responde EXACTAMENTE [PASS]).';
 /** Appended for the closing turn: force the decision line so the round produces an
  *  outcome, not silence (spec §4.3). */
 const CONCLUSION_PROTOCOL =
