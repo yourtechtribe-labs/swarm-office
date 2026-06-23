@@ -92,7 +92,8 @@ type ManagerOpts = {
   /** Override the turn source (probe/test-mode). Default: live gateway if configured,
    *  else the scripted fallback — so a round runs out-of-the-box, off-VPN. */
   turnEngine?: TurnEngine;
-  /** Deliberately-high ceiling; hitting it means PASS failed → loud WARN (spec §4.5). */
+  /** Safety-net ceiling on turns (NOT the primary stop — consensus + human STOP are).
+   *  `0` (or negative) = UNLIMITED: the round ends only on consensus or /stop. Default 30. */
   runawayCap?: number;
   /** Pause between turns (ms) so humans can read the round + the movement shows. 0 in
    *  the probe for speed; a small value in prod. */
@@ -174,7 +175,9 @@ export class ConversationManager {
     this.bodies = opts.bodies;
     this.broadcastChat = opts.broadcastChat;
     this.log = opts.log;
-    this.runawayCap = opts.runawayCap ?? 30;
+    // 0/negative → unlimited (Infinity): rely on consensus + human STOP, no turn ceiling.
+    const cap = opts.runawayCap ?? 30;
+    this.runawayCap = cap <= 0 ? Infinity : cap;
     this.turnDelayMs = opts.turnDelayMs ?? 0;
     this.toolsEnabled = opts.enableTools ?? true;
     this.workClient = opts.workClient;

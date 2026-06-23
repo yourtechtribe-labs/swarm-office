@@ -80,6 +80,9 @@ export class OfficeRoom extends Room<{ state: OfficeState }> {
       broadcastChat: (zone, from, text) => this.broadcastChatToZone(zone, from, text),
       log: (level, text) => this.serverLog(level, text),
       turnDelayMs: 700, // a readable pace between turns (the probe uses 0)
+      // RUNAWAY_CAP env: a turn ceiling (safety net). Set RUNAWAY_CAP=0 for UNLIMITED —
+      // the round then ends only on consensus or a human /stop. Unset → default 30.
+      runawayCap: process.env.RUNAWAY_CAP !== undefined ? Number(process.env.RUNAWAY_CAP) : undefined,
       workClient: harnessUrl ? makeWorkClient(harnessUrl) : undefined,
       workModel: process.env.WORK_MODEL?.trim() || '',
       zoneWorkspace: (zone) => `${workWsRoot}/${zone || 'lobby'}`,
