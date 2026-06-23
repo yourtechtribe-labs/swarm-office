@@ -91,8 +91,24 @@ export function Chat() {
     e.preventDefault();
     const text = draft.trim();
     if (!text) return;
-    EventBus.emit('chat-send', text); // scene → room.send('chat'); server validates again
     setDraft(''); // clear but keep focus, so the user can keep typing
+
+    // F4a — SLASH-COMMANDS drive the AI agents on a SEPARATE bus channel, so they
+    // never render as a chat line nor hit the human chat path. `/seed <topic>` starts
+    // (or re-seeds) a round; `/stop` halts it. Anything else goes out as normal chat.
+    // We parse leniently (case-insensitive, tolerate extra spaces); the server is the
+    // real validation boundary.
+    if (text.toLowerCase() === '/stop') {
+      EventBus.emit('agent-command', { kind: 'stop' });
+      return;
+    }
+    const seed = text.match(/^\/seed\s+(.+)$/i);
+    if (seed) {
+      EventBus.emit('agent-command', { kind: 'seed', topic: seed[1].trim() });
+      return;
+    }
+
+    EventBus.emit('chat-send', text); // scene → room.send('chat'); server validates again
   };
 
   return (
@@ -124,7 +140,7 @@ export function Chat() {
           onKeyDown={(e) => {
             if (e.key === 'Escape') inputRef.current?.blur();
           }}
-          placeholder="Press C to chat…"
+          placeholder="Press C to chat · /seed <tema> · /stop"
           maxLength={500}
           aria-label="Chat message"
         />

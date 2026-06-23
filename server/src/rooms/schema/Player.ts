@@ -56,4 +56,11 @@ export class Player extends Schema {
    * the server-spawned NPC flips it true.
    */
   @type('boolean') isNpc = false;
+  /**
+   * Optional label tint (CSS hex like '#e0b341') for an AI agent, so the multiple
+   * agents of F4 are visually distinguishable. Empty for humans (the client falls
+   * back to the default label colour). Additive schema field — both sides stay on the
+   * same colyseus 0.17.x line, and the client reads it structurally in PlayerView.
+   */
+  @type('string') color = '';
 }

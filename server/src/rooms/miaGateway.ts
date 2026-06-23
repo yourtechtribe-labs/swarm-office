@@ -34,6 +34,23 @@ import https from 'node:https';
 
 export type ChatMessage = { role: 'system' | 'user' | 'assistant'; content: string };
 
+/** An OpenAI-shaped function/tool definition we pass to the gateway (F4b). The model
+ *  may answer by CALLING one of these instead of (or alongside) plain text. */
+export type ToolDef = {
+  type: 'function';
+  function: { name: string; description: string; parameters: object };
+};
+
+/** A tool call the model decided to make, already PARSED for the caller: the gateway
+ *  returns `function.arguments` as a JSON STRING (verified on this vLLM build, F4b
+ *  toolcheck), so we parse it here into an object and hand back `{ id, name, args }`. */
+export type ToolCall = { id: string; name: string; args: Record<string, unknown> };
+
+/** A full gateway reply (F4b). `content` is the assistant's text (can be `null` on a
+ *  pure tool-call turn — confirmed live); `toolCalls` is empty unless the model called
+ *  a tool. */
+export type GatewayReply = { content: string | null; toolCalls: ToolCall[] };
+
 /** Hard cap on the reply length (tokens). A chat NPC says a line, not an essay —
  *  and this bounds latency + cost per call (spec §6). */
 const MAX_TOKENS = 160;
@@ -84,7 +101,10 @@ function agentFor(cfg: GatewayConfig): https.Agent | undefined {
  * chain-of-thought: without it Qwen3 returns its reasoning in a separate field and
  * adds latency — for a one-line NPC we want only the final answer.
  */
-export function gatewayComplete(messages: ChatMessage[]): Promise<string> {
+export function gatewayChat(
+  messages: ChatMessage[],
+  opts?: { tools?: ToolDef[] },
+): Promise<GatewayReply> {
   const cfg = readConfig();
   if (!cfg) return Promise.reject(new Error('gateway not configured'));
 
@@ -95,9 +115,12 @@ export function gatewayComplete(messages: ChatMessage[]): Promise<string> {
     max_tokens: MAX_TOKENS,
     temperature: TEMPERATURE,
     chat_template_kwargs: { enable_thinking: false },
+    // Only send the tools fields when tools are provided, so F4a's plain text turns
+    // hit the exact same request shape they always did (no behaviour drift).
+    ...(opts?.tools?.length ? { tools: opts.tools, tool_choice: 'auto' } : {}),
   });
 
-  return new Promise<string>((resolve, reject) => {
+  return new Promise<GatewayReply>((resolve, reject) => {
     const req = https.request(
       url,
       {
@@ -119,12 +142,25 @@ export function gatewayComplete(messages: ChatMessage[]): Promise<string> {
             return;
           }
           try {
-            const content = JSON.parse(raw)?.choices?.[0]?.message?.content;
-            if (typeof content !== 'string' || !content.trim()) {
-              reject(new Error('gateway returned empty content'));
+            const message = JSON.parse(raw)?.choices?.[0]?.message;
+            const content = typeof message?.content === 'string' ? message.content.trim() : null;
+            // Parse tool_calls into {id,name,args}. arguments is a JSON STRING on this
+            // build (verified by F4b-toolcheck); a malformed one degrades to {} rather
+            // than throwing the whole turn away.
+            const toolCalls: ToolCall[] = Array.isArray(message?.tool_calls)
+              ? message.tool_calls.map((tc: { id?: string; function?: { name?: string; arguments?: string } }) => ({
+                  id: tc.id ?? '',
+                  name: tc.function?.name ?? '',
+                  args: safeParseArgs(tc.function?.arguments),
+                }))
+              : [];
+            // A valid turn must carry SOMETHING — text or a tool call. (A pure tool
+            // turn legitimately has content:null, so we can't require content alone.)
+            if (!content && toolCalls.length === 0) {
+              reject(new Error('gateway returned empty content and no tool_calls'));
               return;
             }
-            resolve(content.trim());
+            resolve({ content: content || null, toolCalls });
           } catch (e) {
             reject(new Error(`gateway bad JSON: ${(e as Error).message}`));
           }
@@ -138,4 +174,16 @@ export function gatewayComplete(messages: ChatMessage[]): Promise<string> {
     req.write(payload);
     req.end();
   });
+}
+
+/** Parse a tool_call `arguments` JSON string into an object; never throw (a bad blob
+ *  becomes `{}`, and the tool handler validates the shape before acting). */
+function safeParseArgs(argsJson: string | undefined): Record<string, unknown> {
+  if (!argsJson) return {};
+  try {
+    const parsed = JSON.parse(argsJson);
+    return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
 }

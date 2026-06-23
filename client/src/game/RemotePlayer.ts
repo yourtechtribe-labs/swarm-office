@@ -40,8 +40,11 @@ export class RemotePlayer {
    *   Phaser 4 breaking change, so a `Text` is both safe and clearer than an
    *   alpha/colour trick). Humans pass no label today; name labels for humans are a
    *   trivial future reuse of this same seam.
+   * @param labelColor optional CSS hex for the label text (F4: each agent carries its
+   *   own colour from the roster, so the multiple NPCs are distinguishable). Defaults
+   *   to the F2 gold when an agent has no colour set.
    */
-  constructor(scene: Scene, x: number, y: number, label?: string) {
+  constructor(scene: Scene, x: number, y: number, label?: string, labelColor?: string) {
     this.sprite = scene.add.sprite(x, y, 'player').setScale(2);
     // Slight transparency so a remote avatar reads as distinct from your own.
     // (We avoid setTint on purpose — the tint API is one of Phaser 4's breaking
@@ -63,7 +66,7 @@ export class RemotePlayer {
       this.label = scene.add
         .text(x, y - this.sprite.displayHeight / 2, label, {
           fontSize: '14px',
-          color: '#ffd866',
+          color: labelColor || '#ffd866',
           backgroundColor: '#00000080',
           padding: { x: 4, y: 2 },
         })

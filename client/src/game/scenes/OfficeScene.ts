@@ -1,5 +1,5 @@
 import { Scene, Physics, Input, type Types } from 'phaser';
-import { EventBus } from '../EventBus';
+import { EventBus, type SwarmEvents } from '../EventBus';
 import {
   connectToOffice,
   getStateCallbacks,
@@ -128,6 +128,13 @@ export class OfficeScene extends Scene {
     // Registered here and removed on scene 'shutdown' so a StrictMode/HMR teardown
     // doesn't leak listeners or leave stale closures pointing at a dead scene.
     const onChatSend = (text: string) => this.room?.send('chat', { text });
+    // F4a — relay a parsed slash-command (/seed, /stop) to the server's `agent-cmd`
+    // channel. Separate from chat so it never renders as a chat line; the server owns
+    // the ConversationManager and validates again.
+    // Payload type derived from the bus contract (single source) so a new command kind
+    // can't drift between EventBus and this relay.
+    const onAgentCommand = (cmd: Parameters<SwarmEvents['agent-command']>[0]) =>
+      this.room?.send('agent-cmd', cmd);
     const onChatFocus = (focused: boolean) => {
       this.chatFocused = focused;
       const kb = this.input.keyboard!;
@@ -174,10 +181,12 @@ export class OfficeScene extends Scene {
     };
 
     EventBus.on('chat-send', onChatSend);
+    EventBus.on('agent-command', onAgentCommand);
     EventBus.on('chat-focus', onChatFocus);
     EventBus.on('voice-join', onVoiceJoin);
     this.events.once('shutdown', () => {
       EventBus.off('chat-send', onChatSend);
+      EventBus.off('agent-command', onAgentCommand);
       EventBus.off('chat-focus', onChatFocus);
       EventBus.off('voice-join', onVoiceJoin);
       // Tear down all peer connections + stop the mic on scene teardown
@@ -250,7 +259,13 @@ export class OfficeScene extends Scene {
       if (sessionId === room.sessionId) return;
       // Mark an AI NPC with a floating name label so a human reads it as an agent.
       // Humans pass no label (their name HUD lives elsewhere); only NPCs are tagged.
-      const remote = new RemotePlayer(this, player.x, player.y, player.isNpc ? player.name : undefined);
+      const remote = new RemotePlayer(
+        this,
+        player.x,
+        player.y,
+        player.isNpc ? player.name : undefined,
+        player.isNpc ? player.color : undefined, // F4: each agent's roster colour
+      );
       this.remotes.set(sessionId, remote);
       // Each time the server updates this remote, repoint its interpolation target.
       $(player).onChange(() => remote.setTarget(player.x, player.y));
