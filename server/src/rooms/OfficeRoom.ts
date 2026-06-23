@@ -1,3 +1,5 @@
+import os from 'node:os';
+import path from 'node:path';
 import { Room, type Client } from 'colyseus';
 import { OfficeState } from './schema/OfficeState';
 import { Player } from './schema/Player';
@@ -73,10 +75,15 @@ export class OfficeRoom extends Room<{ state: OfficeState }> {
     // (the `do_work` tool delegates to a sandboxed ReAct loop). Without it, do_work degrades
     // to a chat line and the office still runs (R6). The model + per-zone workspace are env.
     const harnessUrl = process.env.HARNESS_URL?.trim();
-    const workWsRoot = process.env.WORK_WS_ROOT?.trim() || '/tmp/office-ws';
+    // ABSOLUTE root (not the literal '/tmp/...'): on Windows `/tmp` is drive-relative, so
+    // Path('/tmp/...').resolve() lands on C:\tmp or G:\tmp depending on the daemon's launch
+    // cwd — while the agents' files ended up under %TEMP%. Office and harness then browsed
+    // DIFFERENT physical dirs → "workspace vacío". os.tmpdir() is the same stable absolute
+    // path on both (\%TEMP%\ on Windows, /tmp on Linux), so they always agree.
+    const workWsRoot = process.env.WORK_WS_ROOT?.trim() || path.join(os.tmpdir(), 'office-ws');
     // One place maps a zone to its workspace dir — used both to RUN work (below) and to
     // BROWSE it (F6 proxy handlers). Keeping it single-source avoids the two drifting.
-    const zoneWorkspace = (zone: string) => `${workWsRoot}/${zone || 'lobby'}`;
+    const zoneWorkspace = (zone: string) => path.join(workWsRoot, zone || 'lobby');
     // F6 — read-only browsing of that same per-zone workspace, proxied to the harness.
     const wsClient = harnessUrl ? makeWorkspaceClient(harnessUrl) : undefined;
 
