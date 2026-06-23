@@ -255,6 +255,12 @@ export class OfficeScene extends Scene {
     room.onMessage('ws-file', (msg: Parameters<SwarmEvents['ws-file']>[0]) => EventBus.emit('ws-file', msg));
     room.onMessage('ws-changed', (msg: Parameters<SwarmEvents['ws-changed']>[0]) => EventBus.emit('ws-changed', msg));
 
+    // F6 — the room is connected NOW, so the explorer's first listing can actually be sent.
+    // (Files.tsx also requests on React mount, but that races the async connect and is
+    // dropped when this.room is still undefined.) Reusing the change signal = "(re)load the
+    // workspace view"; the office resolves the real zone server-side, so zone:'' is fine.
+    EventBus.emit('ws-changed', { zone: '' });
+
     // `$` is the schema-callbacks proxy: `$(stateObject)` returns an object whose
     // collection fields expose onAdd/onRemove and whose schema fields expose
     // listen/onChange. This is the Colyseus 0.17 / Schema v4 callbacks API.
