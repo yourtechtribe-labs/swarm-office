@@ -95,6 +95,10 @@ type ManagerOpts = {
   /** Safety-net ceiling on turns (NOT the primary stop — consensus + human STOP are).
    *  `0` (or negative) = UNLIMITED: the round ends only on consensus or /stop. Default 30. */
   runawayCap?: number;
+  /** Stop a round after this many CONSECUTIVE no-progress turns (no speech/work/pass) — a
+   *  degenerate-loop guard (e.g. agents only moving) that lets PRODUCTIVE rounds run
+   *  unbounded. 0 = disabled. Default 8. This is the real safety behind unlimited turns. */
+  noProgressCap?: number;
   /** Pause between turns (ms) so humans can read the round + the movement shows. 0 in
    *  the probe for speed; a small value in prod. */
   turnDelayMs?: number;
@@ -152,6 +156,7 @@ export class ConversationManager {
   private readonly log: LogFn;
   private readonly engine: TurnEngine;
   private readonly runawayCap: number;
+  private readonly noProgressCap: number;
   private readonly turnDelayMs: number;
   private readonly toolsEnabled: boolean;
   /** F5 — the work bridge + its config; absent ⇒ do_work degrades to a chat line. */
@@ -183,6 +188,7 @@ export class ConversationManager {
     // 0/negative → unlimited (Infinity): rely on consensus + human STOP, no turn ceiling.
     const cap = opts.runawayCap ?? 30;
     this.runawayCap = cap <= 0 ? Infinity : cap;
+    this.noProgressCap = opts.noProgressCap ?? 8;
     this.turnDelayMs = opts.turnDelayMs ?? 0;
     this.toolsEnabled = opts.enableTools ?? true;
     this.workClient = opts.workClient;
@@ -288,6 +294,12 @@ export class ConversationManager {
     let consecutivePasses = 0;
     let turnIndex = 0;
     let lastSpeaker: AgentConfig | null = null;
+    // Consecutive turns with NO progress (no speech, no work, no pass) — a degenerate loop
+    // signal (e.g. agents just moving back and forth). This, not a turn count, is the real
+    // safety: productive rounds run unbounded; a stuck round is caught. `stuck` skips the
+    // consensus conclusion when we break for this reason.
+    let noProgress = 0;
+    let stuck = false;
 
     while (!this.stopped && consecutivePasses < 2 && turnIndex < this.runawayCap) {
       const agent = this.participants[turnIndex % this.participants.length];
@@ -303,6 +315,7 @@ export class ConversationManager {
       const workCall = result.toolCalls.find((c) => c.name === DO_WORK);
       if (workCall) {
         consecutivePasses = 0;
+        noProgress = 0; // doing work IS progress
         await this.runWorkTurn(agent, String(workCall.args.goal ?? ''), turnIndex);
         lastSpeaker = agent;
         if (this.stopped) break;
@@ -336,6 +349,7 @@ export class ConversationManager {
 
       if (passed) {
         consecutivePasses++;
+        noProgress = 0; // a pass is a deliberate signal toward consensus, not churn
         this.log('info', `🔁 turn ${turnIndex} · ${agent.name} · PASS · round Σ ${(roundMs / 1000).toFixed(1)}s`);
       } else {
         consecutivePasses = 0;
@@ -343,8 +357,21 @@ export class ConversationManager {
           this.transcript.push({ from: agent.key, name: agent.name, text });
           this.broadcastChat(this.zone, agent.key, text);
           lastSpeaker = agent;
+          noProgress = 0; // a real conversational contribution
+        } else {
+          // move-only or empty turn: nothing said, nothing worked — no progress this turn.
+          noProgress++;
         }
         this.log('info', `🔁 turn ${turnIndex} · ${agent.name} · ${Date.now() - t0}ms${acted ? ' · 🚶 move' : ''} · round Σ ${(roundMs / 1000).toFixed(1)}s`);
+      }
+
+      // No-progress backstop: makes UNLIMITED turns safe. A round that churns for
+      // noProgressCap turns with no speech/work/pass is a degenerate loop → stop it.
+      // Productive rounds reset the counter every turn, so they run unbounded.
+      if (this.noProgressCap > 0 && noProgress >= this.noProgressCap) {
+        this.log('warn', `⚠️ ronda detenida: ${noProgress} turnos sin progreso (ni texto ni trabajo) — posible bucle`);
+        stuck = true;
+        break;
       }
 
       // STOP may have been requested during the await (the in-flight line above was the
@@ -355,6 +382,7 @@ export class ConversationManager {
 
     // ── Termination reason ──────────────────────────────────────────────────────
     if (this.stopped) return; // already logged by stop()
+    if (stuck) return; // no-progress backstop already logged; a stuck round has no consensus
 
     if (turnIndex >= this.runawayCap) {
       // The PASS mechanism never fired — this is a BUG SIGNAL, logged loudly and

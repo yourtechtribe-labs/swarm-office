@@ -69,7 +69,7 @@ export const TOOL_DEFS: ToolDef[] = [
       // move was rejected. (The handler ALSO accepts "toward:<agentKey>" — kept for
       // programmatic/future use + covered by the probe — but we don't advertise it to
       // the model here, to keep the enum a hard constraint.)
-      description: `Muévete a otra zona de la oficina. El destino DEBE ser uno de estos ids: ${ZONES.map((z) => z.id).join(', ')}.`,
+      description: `Muévete a otra zona de la oficina SOLO si necesitas cambiar de zona para tu tarea (no te muevas repetidamente ni a la zona en la que ya estás). El destino DEBE ser uno de estos ids: ${ZONES.map((z) => z.id).join(', ')}.`,
       parameters: {
         type: 'object',
         properties: {

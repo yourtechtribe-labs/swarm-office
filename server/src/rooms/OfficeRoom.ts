@@ -83,6 +83,8 @@ export class OfficeRoom extends Room<{ state: OfficeState }> {
       // RUNAWAY_CAP env: a turn ceiling (safety net). Set RUNAWAY_CAP=0 for UNLIMITED —
       // the round then ends only on consensus or a human /stop. Unset → default 30.
       runawayCap: process.env.RUNAWAY_CAP !== undefined ? Number(process.env.RUNAWAY_CAP) : undefined,
+      // The real safety behind unlimited turns: stop a degenerate (no-progress) loop.
+      noProgressCap: process.env.NO_PROGRESS_CAP !== undefined ? Number(process.env.NO_PROGRESS_CAP) : undefined,
       workClient: harnessUrl ? makeWorkClient(harnessUrl) : undefined,
       workModel: process.env.WORK_MODEL?.trim() || '',
       zoneWorkspace: (zone) => `${workWsRoot}/${zone || 'lobby'}`,

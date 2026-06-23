@@ -176,12 +176,36 @@ async function scenarioMultiRound(): Promise<void> {
   console.log('  ✓ multi-round: agents reconvene → a 2nd seed from the hub still works');
 }
 
+async function scenarioNoProgressLoop(): Promise<void> {
+  // Even with UNLIMITED turns (runawayCap=0), a degenerate loop (agents only moving, never
+  // speaking/working/passing) must be caught by the no-progress backstop.
+  const bodies = bodiesIn('lobby', ['lobby', 'kitchen']);
+  const logs: string[] = [];
+  let turns = 0;
+  const engine: TurnEngine = async () => {
+    turns++;
+    return { text: null, toolCalls: [{ name: 'move', args: { target: 'kitchen' } }] };
+  };
+  const cm = new ConversationManager({
+    roster: ROSTER, bodies: bodies as Map<string, AgentBody>,
+    broadcastChat: () => {}, log: (_l, t) => logs.push(t),
+    turnEngine: engine, turnDelayMs: 0, runawayCap: 0, // unlimited turns
+  });
+  cm.seed('lobby', 'bucle de movimiento', 'Albert');
+  await cm.settled();
+  assert(!cm.isRunning, 'a move-only loop is stopped even with unlimited turns');
+  assert(logs.some((t) => /sin progreso/.test(t)), 'the no-progress backstop logged');
+  assert(turns <= 12, `stopped near the no-progress cap (turns=${turns}), not infinite`);
+  console.log('  ✓ no-progress: an all-move loop is caught (unlimited turns stay safe)');
+}
+
 async function main(): Promise<void> {
   console.log('F4b probe — tool-calling (move, yield_turn)');
   scenarioExecuteToolCall();
   await scenarioManagerMove();
   await scenarioYieldIsPass();
   await scenarioMultiRound();
+  await scenarioNoProgressLoop();
   console.log(`\n✅ F4b probe passed (${checks} assertions)`);
 }
 
